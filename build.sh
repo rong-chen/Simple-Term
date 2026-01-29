@@ -1,13 +1,26 @@
 #!/bin/bash
 # Simple Term macOS 应用打包脚本
-# 用法: ./build.sh [release|debug]
+# 用法: ./build.sh [release|debug] [--dmg]
 
 set -e
 
 # 默认构建 Release 版本
 BUILD_CONFIG=${1:-release}
+CREATE_DMG=false
 
-echo "🔨 yzTerm 打包脚本"
+# 检查参数
+for arg in "$@"; do
+    case $arg in
+        --dmg)
+            CREATE_DMG=true
+            ;;
+    esac
+done
+
+APP_NAME="Simple Term"
+VERSION="1.0.0"
+
+echo "🔨 $APP_NAME 打包脚本"
 echo "================================"
 
 # 进入项目目录
@@ -55,13 +68,45 @@ if [ -f "$APP_PATH/Contents/MacOS/yzTermApp" ]; then
     echo "✅ 构建成功！"
     echo "================================"
     
-    # 复制到项目根目录，并重命名为 Simple Term.app
-    rm -rf "../Simple Term.app"
-    cp -R "$APP_PATH" "../Simple Term.app"
+    # 复制到项目根目录，并重命名
+    rm -rf "../$APP_NAME.app"
+    cp -R "$APP_PATH" "../$APP_NAME.app"
     
-    echo "📦 已生成: $(cd .. && pwd)/Simple Term.app"
+    echo "📦 已生成: $(cd .. && pwd)/$APP_NAME.app"
+    
+    # 创建 DMG
+    if [ "$CREATE_DMG" = true ]; then
+        echo ""
+        echo "📀 正在创建 DMG..."
+        
+        cd ..
+        DMG_NAME="${APP_NAME}_v${VERSION}.dmg"
+        DMG_TEMP="dmg_temp"
+        
+        # 清理旧文件
+        rm -rf "$DMG_TEMP" "$DMG_NAME"
+        
+        # 创建临时目录
+        mkdir -p "$DMG_TEMP"
+        cp -R "$APP_NAME.app" "$DMG_TEMP/"
+        
+        # 创建指向 Applications 的符号链接
+        ln -s /Applications "$DMG_TEMP/Applications"
+        
+        # 创建 DMG
+        hdiutil create -volname "$APP_NAME" \
+            -srcfolder "$DMG_TEMP" \
+            -ov -format UDZO \
+            "$DMG_NAME"
+        
+        # 清理临时目录
+        rm -rf "$DMG_TEMP"
+        
+        echo "✅ DMG 已创建: $(pwd)/$DMG_NAME"
+    fi
+    
     echo ""
-    echo "提示: 双击 'Simple Term.app' 即可运行"
+    echo "提示: 双击 '$APP_NAME.app' 即可运行"
 else
     echo ""
     echo "❌ 构建失败"

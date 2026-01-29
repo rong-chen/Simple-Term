@@ -63,6 +63,10 @@ console.log('SSHManager.listDirectory:', SSHManager?.listDirectory);
 // 存储 key
 const HOSTS_STORAGE_KEY = '@yzterm/hosts';
 
+// 空闲超时配置
+const IDLE_TIMEOUT_MS = 2 * 60 * 1000;  // 2分钟空闲超时
+const IDLE_CHECK_INTERVAL_MS = 30 * 1000; // 每30秒检查一次
+
 // 主机类型定义
 interface Host {
   id: string;
@@ -101,9 +105,16 @@ const TERMINAL_HTML = `
   </style>
 </head>
 <body>
+  <div id="search-bar" style="display:none; position:absolute; top:8px; right:8px; z-index:100; background:#333; padding:6px 10px; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.5);">
+    <input id="search-input" type="text" placeholder="搜索..." style="background:#222; color:#fff; border:1px solid #555; padding:4px 8px; border-radius:4px; width:180px; outline:none; font-size:13px;"/>
+    <button id="search-prev" style="background:#555; color:#fff; border:none; padding:4px 8px; border-radius:4px; margin-left:4px; cursor:pointer;">▲</button>
+    <button id="search-next" style="background:#555; color:#fff; border:none; padding:4px 8px; border-radius:4px; margin-left:2px; cursor:pointer;">▼</button>
+    <button id="search-close" style="background:#666; color:#fff; border:none; padding:4px 8px; border-radius:4px; margin-left:4px; cursor:pointer;">x</button>
+  </div>
   <div id="terminal"></div>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-search@0.13.0/lib/xterm-addon-search.min.js"></script>
   <script>
     const term = new Terminal({
       cursorBlink: true,
@@ -124,11 +135,72 @@ const TERMINAL_HTML = `
     });
     
     const fitAddon = new FitAddon.FitAddon();
+    const searchAddon = new SearchAddon.SearchAddon();
     term.loadAddon(fitAddon);
+    term.loadAddon(searchAddon);
     term.open(document.getElementById('terminal'));
     fitAddon.fit();
     
+    // 搜索栏元素
+    const searchBar = document.getElementById('search-bar');
+    const searchInput = document.getElementById('search-input');
+    const searchPrev = document.getElementById('search-prev');
+    const searchNext = document.getElementById('search-next');
+    const searchClose = document.getElementById('search-close');
+    
+    function showSearch() {
+      searchBar.style.display = 'block';
+      searchInput.focus();
+      searchInput.select();
+    }
+    
+    function hideSearch() {
+      searchBar.style.display = 'none';
+      searchAddon.clearDecorations();
+      term.focus();
+    }
+    
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          searchAddon.findPrevious(searchInput.value);
+        } else {
+          searchAddon.findNext(searchInput.value);
+        }
+      } else if (e.key === 'Escape') {
+        hideSearch();
+      }
+    });
+    
+    searchInput.addEventListener('input', () => {
+      searchAddon.findNext(searchInput.value);
+    });
+    
+    searchPrev.addEventListener('click', () => searchAddon.findPrevious(searchInput.value));
+    searchNext.addEventListener('click', () => searchAddon.findNext(searchInput.value));
+    searchClose.addEventListener('click', hideSearch);
+    fitAddon.fit();
+    
     window.addEventListener('resize', () => fitAddon.fit());
+    
+    // 拦截 Cmd+F 打开终端内搜索（替代原生 WebView 查找功能）
+    // 同时拦截 ESC 防止 WebView 崩溃
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        showSearch();  // 显示自定义搜索栏
+        return false;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        hideSearch();  // 关闭搜索栏
+        return false;
+      }
+    }, true);  // 使用捕获阶段
     
     // 用户输入 -> React Native
     term.onData((data) => {
@@ -189,6 +261,9 @@ function AppContent({ isDarkMode }: AppContentProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [terminalReady, setTerminalReady] = useState(false);
+
+  // 空闲超时检测
+  const lastActivityTimeRef = useRef<number>(Date.now());
 
   // WebView ref for xterm.js
   const webViewRef = useRef<WebView>(null);
@@ -306,7 +381,9 @@ function AppContent({ isDarkMode }: AppContentProps) {
         setTerminalReady(true);
         console.log('xterm.js 终端已就绪');
       } else if (message.type === 'input') {
-        // 用户在终端中输入 - 直接发送到 SSH
+        // 用户在终端中输入 - 更新活动时间
+        lastActivityTimeRef.current = Date.now();
+        // 发送到 SSH
         if (sessionId && SSHManager) {
           SSHManager.write(sessionId, message.data);
         }
@@ -454,6 +531,8 @@ function AppContent({ isDarkMode }: AppContentProps) {
 
       // 加载文件浏览器（使用已获取的密码，避免再次验证）
       const hostWithPassword = { ...host, password };
+      // 更新 selectedHost 以便后续文件浏览操作可以使用密码
+      setSelectedHost(hostWithPassword);
       setTimeout(() => {
         if (currentRequestId === connectionRequestIdRef.current) {
           loadDirectoryWithHost('~', hostWithPassword);
@@ -492,11 +571,35 @@ function AppContent({ isDarkMode }: AppContentProps) {
     setConnected(false);
     setSessionId(null);
     setTerminalReady(false);
+    // 清除文件浏览器状态
+    setFileList([]);
+    setCurrentPath('~');
+    setPathInput('~');
     // 清除终端内容
     if (webViewRef.current) {
       webViewRef.current.postMessage(JSON.stringify({ type: 'clear' }));
     }
   }, [sessionId]);
+
+  // 空闲超时检测 - 超过 30 分钟无操作自动断开
+  useEffect(() => {
+    if (!connected || !sessionId) return;
+
+    // 连接时重置活动时间
+    lastActivityTimeRef.current = Date.now();
+
+    const checkIdle = () => {
+      const idleMs = Date.now() - lastActivityTimeRef.current;
+      if (idleMs > IDLE_TIMEOUT_MS) {
+        // 先弹窗提示，然后断开
+        Alert.alert('连接已断开', '由于长时间未操作，连接已自动断开', [{ text: '确定' }]);
+        handleDisconnect();
+      }
+    };
+
+    const interval = setInterval(checkIdle, IDLE_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [connected, sessionId, handleDisconnect]);
 
   // 上传文件
   const handleUploadFile = useCallback(async () => {
@@ -626,12 +729,17 @@ function AppContent({ isDarkMode }: AppContentProps) {
         setFileList(result.files || []);
         setCurrentPath(path);
         setPathInput(path);
+      } else {
+        // 服务端返回失败
+        Alert.alert('目录加载失败', result.error || '未知错误');
+        setFileList([]);
       }
     } catch (error: any) {
       // 忽略 SSH 的 known hosts 警告信息
       const errorMsg = error?.message || '';
       if (!errorMsg.includes('Warning: Permanently added')) {
         console.log('Directory listing failed:', error.message);
+        Alert.alert('目录加载失败', errorMsg || '连接出错');
       }
       setFileList([]);
     } finally {
@@ -931,6 +1039,8 @@ function AppContent({ isDarkMode }: AppContentProps) {
                     }}
                     javaScriptEnabled={true}
                     originWhitelist={['*']}
+                    allowsLinkPreview={false}
+                    keyboardDisplayRequiresUserAction={false}
                   />
                   {!terminalReady && (
                     <View style={styles.terminalLoading}>

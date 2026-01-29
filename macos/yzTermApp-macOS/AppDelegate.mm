@@ -2,6 +2,46 @@
 
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
+#import <objc/runtime.h>
+
+// 拦截 Find 相关 action，防止 WebView 崩溃
+@interface NSApplication (FindPanelOverride)
+@end
+
+@implementation NSApplication (FindPanelOverride)
+
+// 拦截 sendAction，阻止 Find 相关操作
+- (BOOL)custom_sendAction:(SEL)action to:(id)target from:(id)sender {
+  NSString *actionName = NSStringFromSelector(action);
+  // 拦截所有 Find 相关的 action
+  if ([actionName containsString:@"find"] || 
+      [actionName containsString:@"Find"] ||
+      [actionName isEqualToString:@"performFindPanelAction:"] ||
+      [actionName isEqualToString:@"performTextFinderAction:"]) {
+    NSLog(@"Blocked find action: %@", actionName);
+    return NO;  // 阻止这个 action
+  }
+  return [self custom_sendAction:action to:target from:sender];
+}
+
++ (void)load {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    // 交换 sendAction:to:from: 方法
+    Class class = [NSApplication class];
+    SEL originalSelector = @selector(sendAction:to:from:);
+    SEL swizzledSelector = @selector(custom_sendAction:to:from:);
+    
+    Method originalMethod = class_getInstanceMethod(class, originalSelector);
+    Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+    
+    if (originalMethod && swizzledMethod) {
+      method_exchangeImplementations(originalMethod, swizzledMethod);
+    }
+  });
+}
+
+@end
 
 @implementation AppDelegate
 
@@ -30,6 +70,52 @@
       
       // 防止窗口关闭时被释放，以便可以重新打开
       window.releasedWhenClosed = NO;
+    }
+    
+    // 添加全局和本地事件监控器拦截 Cmd+F
+    // 全局监控器 - 拦截所有事件（包括其他应用，但我们只消费自己窗口的）
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent * _Nullable(NSEvent * _Nonnull event) {
+      // 检测 Cmd+F (keyCode 3 = F 键)
+      if ((event.modifierFlags & NSEventModifierFlagCommand) && 
+          !(event.modifierFlags & NSEventModifierFlagShift) &&
+          !(event.modifierFlags & NSEventModifierFlagOption) &&
+          event.keyCode == 3) {
+        NSLog(@"[AppDelegate] Intercepted Cmd+F - blocking to prevent WebView crash");
+        return nil;  // 消费事件，不传递
+      }
+      return event;
+    }];
+  });
+  
+  // 拦截 Cmd+F 防止 WebView 查找功能崩溃
+  // 方法：直接移除 Edit 菜单中的 Find 相关菜单项
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSMenu *mainMenu = [[NSApplication sharedApplication] mainMenu];
+    for (NSMenuItem *menuItem in [mainMenu itemArray]) {
+      if ([[menuItem title] isEqualToString:@"Edit"]) {
+        NSMenu *editMenu = [menuItem submenu];
+        // 找到并移除 Find 子菜单
+        NSArray *itemsToRemove = @[@"Find", @"Find and Replace", @"Find Next", @"Find Previous", @"Use Selection for Find"];
+        for (NSString *title in itemsToRemove) {
+          NSInteger index = [editMenu indexOfItemWithTitle:title];
+          if (index >= 0) {
+            [editMenu removeItemAtIndex:index];
+          }
+        }
+        // 也尝试移除包含 "Find" 的任何项
+        NSMutableArray *indicesToRemove = [NSMutableArray array];
+        for (NSInteger i = 0; i < [editMenu numberOfItems]; i++) {
+          NSMenuItem *item = [editMenu itemAtIndex:i];
+          if ([[item title] containsString:@"Find"]) {
+            [indicesToRemove addObject:@(i)];
+          }
+        }
+        // 从后往前删除
+        for (NSNumber *idx in [[indicesToRemove reverseObjectEnumerator] allObjects]) {
+          [editMenu removeItemAtIndex:[idx integerValue]];
+        }
+        break;
+      }
     }
   });
 }

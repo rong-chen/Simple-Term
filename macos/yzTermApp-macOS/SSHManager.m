@@ -40,6 +40,11 @@ RCT_EXTERN_METHOD(disconnect:(NSString *)sessionId
 RCT_EXTERN_METHOD(disconnectAll:(RCTPromiseResolveBlock)resolver
                   rejecter:(RCTPromiseRejectBlock)rejecter)
 
+// 空闲时间检测
+RCT_EXTERN_METHOD(getIdleTime:(NSString *)sessionId
+                  resolver:(RCTPromiseResolveBlock)resolver
+                  rejecter:(RCTPromiseRejectBlock)rejecter)
+
 // SFTP 文件传输方法
 RCT_EXTERN_METHOD(uploadFile:(NSDictionary *)config
                   resolver:(RCTPromiseResolveBlock)resolver

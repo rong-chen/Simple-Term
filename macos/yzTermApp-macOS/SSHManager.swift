@@ -22,6 +22,13 @@ class SSHManager: NSObject {
   private var activeSessionId: String?
   private var tabKeyMonitor: Any?
   
+  // Keep-Alive 定时器 (防止服务器端超时断开)
+  private var keepAliveTimers: [String: Timer] = [:]
+  private let keepAliveInterval: TimeInterval = 60  // 每60秒发送一次
+  
+  // 最后活动时间（用于空闲检测）
+  private var lastActivityTimes: [String: Date] = [:]
+  
   override init() {
     super.init()
     setupTabKeyMonitor()
@@ -176,6 +183,9 @@ class SSHManager: NSObject {
       // 设置当前活跃会话（用于 Tab 键补全）
       self.activeSessionId = sessionId
       
+      // 启动 Keep-Alive 定时器
+      self.startKeepAlive(sessionId: sessionId)
+      
       DispatchQueue.main.async {
         resolver([
           "sessionId": sessionId,
@@ -209,6 +219,9 @@ class SSHManager: NSObject {
              resolver: @escaping RCTPromiseResolveBlock,
              rejecter: @escaping RCTPromiseRejectBlock) {
     
+    // 更新活动时间
+    lastActivityTimes[sessionId] = Date()
+    
     writeToSession(sessionId, data: data)
     resolver(["success": true])
   }
@@ -221,6 +234,36 @@ class SSHManager: NSObject {
         _ = Darwin.write(masterFd, bytes.baseAddress!, inputData.count)
       }
     }
+  }
+  
+  /// 启动 Keep-Alive 定时器
+  private func startKeepAlive(sessionId: String) {
+    // 初始化活动时间
+    lastActivityTimes[sessionId] = Date()
+    
+    // 在主线程创建定时器
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      
+      let timer = Timer.scheduledTimer(withTimeInterval: self.keepAliveInterval, repeats: true) { [weak self] _ in
+        guard let self = self, self.processes[sessionId] != nil else { return }
+        // 发送空操作保持连接 (不影响终端显示)
+        // 注意：只是重置服务器端的空闲计时器，不需要实际发送数据
+        self.lastActivityTimes[sessionId] = Date()
+      }
+      self.keepAliveTimers[sessionId] = timer
+    }
+  }
+  
+  /// 获取会话空闲时间（供 JS 调用）
+  @objc
+  func getIdleTime(_ sessionId: String,
+                   resolver: @escaping RCTPromiseResolveBlock,
+                   rejecter: @escaping RCTPromiseRejectBlock) {
+    
+    let lastActivity = lastActivityTimes[sessionId] ?? Date()
+    let idleSeconds = Date().timeIntervalSince(lastActivity)
+    resolver(["idleSeconds": idleSeconds])
   }
   
   /// 发送命令（兼容旧 API）
@@ -269,6 +312,11 @@ class SSHManager: NSObject {
     processes.removeValue(forKey: sessionId)
     masterFds.removeValue(forKey: sessionId)
     
+    // 停止 Keep-Alive 定时器
+    keepAliveTimers[sessionId]?.invalidate()
+    keepAliveTimers.removeValue(forKey: sessionId)
+    lastActivityTimes.removeValue(forKey: sessionId)
+    
     bufferQueue.sync {
       outputBuffers.removeValue(forKey: sessionId)
     }
@@ -294,6 +342,13 @@ class SSHManager: NSObject {
     processes.removeAll()
     masterFds.removeAll()
     outputHandlers.removeAll()
+    
+    // 停止所有 Keep-Alive 定时器
+    for (_, timer) in keepAliveTimers {
+      timer.invalidate()
+    }
+    keepAliveTimers.removeAll()
+    lastActivityTimes.removeAll()
     
     bufferQueue.sync {
       outputBuffers.removeAll()
@@ -509,9 +564,18 @@ class SSHManager: NSObject {
       let errorPipe = Pipe()
       
       // 使用 ls -la 获取详细目录信息
-      // 注意：~ 需要由 shell 展开，所以替换成 $HOME
-      let expandedPath = path == "~" ? "$HOME" : path.replacingOccurrences(of: "~/", with: "$HOME/")
-      let command = "ls -la \(expandedPath)"
+      // 处理路径：~ 需要特殊处理，其他路径用引号保护
+      let command: String
+      if path == "~" {
+        command = "ls -la ~"
+      } else if path.hasPrefix("~/") {
+        // ~/xxx 形式，~ 不能加引号
+        let subPath = String(path.dropFirst(2))
+        command = "ls -la ~/'\(subPath)'"
+      } else {
+        // 绝对路径或相对路径，用引号保护
+        command = "ls -la '\(path)'"
+      }
       
       if let pwd = password, !pwd.isEmpty {
         // 使用 sshpass
