@@ -6,6 +6,7 @@ import 'package:xterm/xterm.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'models/host.dart';
+import 'models/session.dart';
 import 'services/storage_service.dart';
 import 'services/ssh_service.dart';
 
@@ -48,12 +49,20 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
-  final SSHService _sshService = SSHService();
+  final SSHService _sftpService = SSHService();  // 用于 SFTP 文件操作（独立连接）
   
   List<Host> _hosts = [];
   Host? _selectedHost;
-  bool _isConnected = false;
-  bool _isConnecting = false;
+  
+  // 多会话管理
+  final Map<String, TerminalSession> _sessions = {};
+  String? _activeSessionId;
+  
+  // 便捷访问当前活动会话
+  TerminalSession? get _activeSession => _activeSessionId != null ? _sessions[_activeSessionId] : null;
+  Terminal? get _activeTerminal => _activeSession?.terminal;
+  bool get _isConnected => _activeSession?.isConnected ?? false;
+  bool get _isConnecting => _activeSession?.isConnecting ?? false;
   
   // 文件管理器
   List<SftpFileInfo> _files = [];
@@ -65,8 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _transferMessage = '';
   double _transferProgress = 0.0;
   
-  // 终端
-  late Terminal _terminal;
+  // 终端控制器（用于搜索高亮）
   late TerminalController _terminalController;
   
   // 搜索
@@ -77,25 +85,12 @@ class _HomeScreenState extends State<HomeScreen> {
   List<int> _searchMatchLines = [];  // 存储匹配的行号
   int _currentMatchIndex = -1;  // 当前匹配索引
   final ScrollController _terminalScrollController = ScrollController();
-  
-  // SSH 输出订阅
-  StreamSubscription<String>? _outputSubscription;
 
   @override
   void initState() {
     super.initState();
-    _terminal = Terminal(maxLines: 10000);
     _terminalController = TerminalController();
     _loadHosts();
-    
-    // 设置空闲断线回调
-    _sshService.onIdleDisconnect = () {
-      setState(() {
-        _isConnected = false;
-        _terminal.buffer.clear();
-        _files = [];
-      });
-    };
   }
 
   Future<void> _loadHosts() async {
@@ -103,9 +98,30 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _hosts = hosts);
   }
 
+  /// 检查主机是否已连接
+  bool _isHostConnected(String hostId) => _sessions[hostId]?.isConnected ?? false;
+  
+  /// 检查主机是否正在连接
+  bool _isHostConnecting(String hostId) => _sessions[hostId]?.isConnecting ?? false;
+
+  /// 连接到主机（支持多会话）
   Future<void> _connectToHost(Host host) async {
+    // 如果已经连接，直接切换到该会话
+    if (_isHostConnected(host.id)) {
+      _switchToSession(host.id);
+      return;
+    }
+    
+    // 创建或获取会话
+    var session = _sessions[host.id];
+    if (session == null) {
+      session = TerminalSession(hostId: host.id);
+      _sessions[host.id] = session;
+    }
+    
     setState(() {
-      _isConnecting = true;
+      session!.isConnecting = true;
+      _activeSessionId = host.id;
       _selectedHost = host;
     });
     
@@ -114,53 +130,86 @@ class _HomeScreenState extends State<HomeScreen> {
       String? password = await _storageService.getPassword(host.id);
       if (password == null) {
         _showPasswordDialog(host);
-        setState(() => _isConnecting = false);
+        setState(() => session!.isConnecting = false);
         return;
       }
 
-      // 取消旧的输出订阅
-      await _outputSubscription?.cancel();
-      _outputSubscription = null;
+      await session.sshService.connect(host, password);
       
-      // 重新创建 Terminal 对象（确保干净状态）
-      _terminal = Terminal(maxLines: 10000);
+      // 设置空闲断线回调
+      session.sshService.onIdleDisconnect = () {
+        _onSessionDisconnected(host.id);
+      };
       
-      await _sshService.connect(host, password);
-      
-      // 监听输出（保存订阅引用）
-      _outputSubscription = _sshService.output.listen((data) {
-        _terminal.write(data);
+      // 监听输出
+      session.outputSubscription = session.sshService.output.listen((data) {
+        session!.terminal.write(data);
       });
 
       // 监听终端输入
-      _terminal.onOutput = (data) {
-        _sshService.write(data);
+      session.terminal.onOutput = (data) {
+        session!.sshService.write(data);
       };
 
       // 监听终端尺寸变化
-      _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-        _sshService.resize(width, height);
+      session.terminal.onResize = (width, height, pixelWidth, pixelHeight) {
+        session!.sshService.resize(width, height);
       };
 
       setState(() {
-        _isConnected = true;
-        _isConnecting = false;
+        session!.isConnecting = false;
         _selectedHost = host;
       });
     } catch (e) {
-      setState(() => _isConnecting = false);
+      setState(() => session!.isConnecting = false);
       _showError('连接失败: $e');
     }
   }
 
-  Future<void> _disconnect() async {
-    await _outputSubscription?.cancel();
-    _outputSubscription = null;
-    await _sshService.disconnect();
+  /// 切换到指定会话
+  void _switchToSession(String hostId) {
+    if (_sessions.containsKey(hostId)) {
+      setState(() {
+        _activeSessionId = hostId;
+        _selectedHost = _hosts.firstWhere((h) => h.id == hostId, orElse: () => _selectedHost!);
+        _files = [];
+        _currentPath = '~';
+      });
+    }
+  }
+
+  /// 会话断线回调
+  void _onSessionDisconnected(String hostId) {
     setState(() {
-      _isConnected = false;
-      _terminal.buffer.clear();
-      _files = [];
+      _sessions.remove(hostId);
+      if (_activeSessionId == hostId) {
+        // 切换到另一个活动会话，或清空
+        _activeSessionId = _sessions.keys.isNotEmpty ? _sessions.keys.first : null;
+        _files = [];
+      }
+    });
+  }
+
+  /// 断开当前活动会话
+  Future<void> _disconnect() async {
+    if (_activeSessionId == null) return;
+    await _disconnectHost(_activeSessionId!);
+  }
+
+  /// 断开指定主机的连接
+  Future<void> _disconnectHost(String hostId) async {
+    final session = _sessions[hostId];
+    if (session != null) {
+      await session.dispose();
+      _sessions.remove(hostId);
+    }
+    
+    setState(() {
+      // 如果断开的是当前活动会话，切换到另一个
+      if (_activeSessionId == hostId) {
+        _activeSessionId = _sessions.keys.isNotEmpty ? _sessions.keys.first : null;
+        _files = [];
+      }
     });
   }
 
@@ -173,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final password = await _storageService.getPassword(_selectedHost!.id);
       if (password == null) return;
       
-      final files = await _sshService.listDirectory(_selectedHost!, password, path);
+      final files = await _sftpService.listDirectory(_selectedHost!, password, path);
       // 排序：文件夹在前，然后按名称排序
       files.sort((a, b) {
         if (a.isDirectory && !b.isDirectory) return -1;
@@ -222,7 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
         remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
       }
       
-      await _sshService.uploadFile(
+      await _sftpService.uploadFile(
         _selectedHost!,
         password,
         file.path!,
@@ -268,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
         remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
       }
       
-      await _sshService.downloadFile(
+      await _sftpService.downloadFile(
         _selectedHost!,
         password,
         '$remotePath/$fileName',
@@ -346,9 +395,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _searchTerminal(String query) {
     _clearSearchHighlights();
-    if (query.isEmpty) return;
+    if (query.isEmpty || _activeTerminal == null) return;
     
-    final buffer = _terminal.buffer;
+    final buffer = _activeTerminal!.buffer;
     final lines = buffer.lines;
     
     for (int y = 0; y < lines.length; y++) {
@@ -871,46 +920,73 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (context, index) {
                           final host = _hosts[index];
                           final isSelected = _selectedHost?.id == host.id;
+                          final isHostConnected = _isHostConnected(host.id);
+                          final isHostConnecting = _isHostConnecting(host.id);
+                          final isActiveSession = _activeSessionId == host.id;
                       
                       return GestureDetector(
                         onTap: () {
-                          if (!_isConnected) {
+                          if (isHostConnected) {
+                            // 已连接的主机，切换到该会话
+                            _switchToSession(host.id);
+                          } else {
+                            // 未连接的主机，选中查看详情
                             setState(() => _selectedHost = host);
                           }
                         },
                         onDoubleTap: () {
-                          if (!_isConnected) {
+                          if (!isHostConnected && !isHostConnecting) {
                             _connectToHost(host);
                           }
                         },
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isSelected ? const Color(0xFF323f54) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListTile(
+                        onSecondaryTap: () {
+                          // 右键显示主机详情
+                          setState(() => _selectedHost = host);
+                        },
+                        child: isHostConnected
+                            ? Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: ConnectedShimmer(
+                                    isActive: isActiveSession,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        // 所有已连接主机都有边框，保持尺寸一致
+                                        border: Border.all(
+                                          color: isActiveSession 
+                                              ? const Color(0xFF32d74b) 
+                                              : Colors.transparent,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: ListTile(
                             dense: true,
                             visualDensity: VisualDensity.compact,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                             title: Text(
                               host.name,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: isSelected ? Colors.white : Colors.white70,
-                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                color: isActiveSession ? Colors.white : (isSelected ? Colors.white : Colors.white70),
+                                fontWeight: isActiveSession ? FontWeight.w600 : FontWeight.normal,
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               '${host.username}@${host.hostname}',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: isSelected ? Colors.white70 : Colors.grey,
+                                color: isActiveSession ? Colors.white70 : Colors.grey,
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (_isConnecting && isSelected)
+                                // 连接中显示 loading
+                                if (isHostConnecting)
                                   const SizedBox(
                                     width: 14,
                                     height: 14,
@@ -919,7 +995,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       color: Color(0xFF007AFF),
                                     ),
                                   ),
-                                if (!_isConnecting && !(_isConnected && isSelected))
+                                // 未连接且未在连接中才显示播放按钮
+                                if (!isHostConnecting && !isHostConnected)
                                   IconButton(
                                     icon: const Icon(Icons.play_arrow, size: 18),
                                     color: const Color(0xFF32d74b),
@@ -928,22 +1005,85 @@ class _HomeScreenState extends State<HomeScreen> {
                                     tooltip: '连接',
                                     onPressed: () => _connectToHost(host),
                                   ),
-                                if (_isConnected && isSelected)
+                                // 所有已连接的主机都显示断开按钮
+                                if (isHostConnected && !isHostConnecting)
                                   IconButton(
                                     icon: const Icon(Icons.stop, size: 18),
                                     color: Colors.red,
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
                                     tooltip: '断开',
-                                    onPressed: _disconnect,
+                                    onPressed: () => _disconnectHost(host.id),
                                   ),
                               ],
                             ),
                             onTap: () {
-                              setState(() => _selectedHost = host);
+                              if (isHostConnected) {
+                                _switchToSession(host.id);
+                              } else {
+                                setState(() => _selectedHost = host);
+                              }
                             },
                           ),
-                        ),
+                        ),  // Container with border
+                      ),  // ConnectedShimmer
+                    ),  // ClipRRect
+                  )  // outer Container with margin
+                            : Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? const Color(0xFF2a2a2a) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: ListTile(
+                                  dense: true,
+                                  visualDensity: VisualDensity.compact,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                                  title: Text(
+                                    host.name,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isSelected ? Colors.white : Colors.white70,
+                                      fontWeight: FontWeight.normal,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    '${host.username}@${host.hostname}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isHostConnecting)
+                                        const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Color(0xFF007AFF),
+                                          ),
+                                        ),
+                                      if (!isHostConnecting)
+                                        IconButton(
+                                          icon: const Icon(Icons.play_arrow, size: 18),
+                                          color: const Color(0xFF32d74b),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          tooltip: '连接',
+                                          onPressed: () => _connectToHost(host),
+                                        ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    setState(() => _selectedHost = host);
+                                  },
+                                ),
+                              ),
                       );
                     },
                   ),
@@ -1182,42 +1322,44 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   ScrollConfiguration(
                                     behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                                    child: TerminalView(
-                                      _terminal,
-                                      controller: _terminalController,
-                                      scrollController: _terminalScrollController,
-                                      autofocus: true,
-                                      alwaysShowCursor: true,
-                                      theme: const TerminalTheme(
-                                        cursor: Color(0xFFFFFFFF),
-                                        selection: Color(0x80FFFFFF),
-                                        foreground: Color(0xFFFFFFFF),
-                                        background: Color(0xFF0d0d0d),
-                                        black: Color(0xFF000000),
-                                        white: Color(0xFFFFFFFF),
-                                        red: Color(0xFFFF5555),
-                                        green: Color(0xFF50FA7B),
-                                        yellow: Color(0xFFF1FA8C),
-                                        blue: Color(0xFF6272A4),
-                                        magenta: Color(0xFFFF79C6),
-                                        cyan: Color(0xFF8BE9FD),
-                                        brightBlack: Color(0xFF6272A4),
-                                        brightWhite: Color(0xFFFFFFFF),
-                                        brightRed: Color(0xFFFF6E6E),
-                                        brightGreen: Color(0xFF69FF94),
-                                        brightYellow: Color(0xFFFFFFA5),
-                                        brightBlue: Color(0xFFD6ACFF),
-                                        brightMagenta: Color(0xFFFF92DF),
-                                        brightCyan: Color(0xFFA4FFFF),
-                                        searchHitBackground: Color(0xFFFFFF00),
-                                        searchHitBackgroundCurrent: Color(0xFFFF6600),
-                                        searchHitForeground: Color(0xFF000000),
-                                      ),
-                                      textStyle: const TerminalStyle(
-                                        fontSize: 14,
-                                        fontFamily: 'Menlo',
-                                      ),
-                                    ),
+                                    child: _activeTerminal != null
+                                        ? TerminalView(
+                                            _activeTerminal!,
+                                            controller: _terminalController,
+                                            scrollController: _terminalScrollController,
+                                            autofocus: true,
+                                            alwaysShowCursor: true,
+                                            theme: const TerminalTheme(
+                                              cursor: Color(0xFFFFFFFF),
+                                              selection: Color(0x80FFFFFF),
+                                              foreground: Color(0xFFFFFFFF),
+                                              background: Color(0xFF0d0d0d),
+                                              black: Color(0xFF000000),
+                                              white: Color(0xFFFFFFFF),
+                                              red: Color(0xFFFF5555),
+                                              green: Color(0xFF50FA7B),
+                                              yellow: Color(0xFFF1FA8C),
+                                              blue: Color(0xFF6272A4),
+                                              magenta: Color(0xFFFF79C6),
+                                              cyan: Color(0xFF8BE9FD),
+                                              brightBlack: Color(0xFF6272A4),
+                                              brightWhite: Color(0xFFFFFFFF),
+                                              brightRed: Color(0xFFFF6E6E),
+                                              brightGreen: Color(0xFF69FF94),
+                                              brightYellow: Color(0xFFFFFFA5),
+                                              brightBlue: Color(0xFFD6ACFF),
+                                              brightMagenta: Color(0xFFFF92DF),
+                                              brightCyan: Color(0xFFA4FFFF),
+                                              searchHitBackground: Color(0xFFFFFF00),
+                                              searchHitBackgroundCurrent: Color(0xFFFF6600),
+                                              searchHitForeground: Color(0xFF000000),
+                                            ),
+                                            textStyle: const TerminalStyle(
+                                              fontSize: 14,
+                                              fontFamily: 'Menlo',
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
                                   ),
                                   // 搜索框
                                   if (_isSearching)
@@ -1348,7 +1490,78 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _sshService.disconnect();
+    // 清理所有会话
+    for (final session in _sessions.values) {
+      session.dispose();
+    }
+    _sessions.clear();
     super.dispose();
+  }
+}
+
+/// 已连接状态的光效动画组件
+class ConnectedShimmer extends StatefulWidget {
+  final Widget child;
+  final bool isActive;
+  
+  const ConnectedShimmer({
+    super.key,
+    required this.child,
+    this.isActive = false,
+  });
+
+  @override
+  State<ConnectedShimmer> createState() => _ConnectedShimmerState();
+}
+
+class _ConnectedShimmerState extends State<ConnectedShimmer>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              begin: Alignment(-1.0 + 2.0 * _controller.value, 0),
+              end: Alignment(-0.5 + 2.0 * _controller.value, 0),
+              colors: widget.isActive
+                  ? [
+                      const Color(0xFF1a3a1a),
+                      const Color(0xFF2a5a2a),
+                      const Color(0xFF1a3a1a),
+                    ]
+                  : [
+                      const Color(0xFF1a3a1a),
+                      const Color(0xFF254525),
+                      const Color(0xFF1a3a1a),
+                    ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
   }
 }
