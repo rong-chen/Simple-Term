@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import '../models/host.dart';
+import '../models/session.dart';  // SftpFileInfo
 
 /// SSH 服务 - 管理 SSH 连接和终端交互
 class SSHService {
@@ -28,6 +29,12 @@ class SSHService {
         onIdleDisconnect?.call();
       });
     }
+  }
+
+  /// 暂停空闲计时器（文件传输期间调用）
+  void pauseIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
   }
 
   /// 连接到 SSH 服务器
@@ -177,17 +184,4 @@ class SSHService {
       client.close();
     }
   }
-}
-
-/// SFTP 文件信息
-class SftpFileInfo {
-  final String name;
-  final bool isDirectory;
-  final int size;
-
-  SftpFileInfo({
-    required this.name,
-    required this.isDirectory,
-    required this.size,
-  });
 }

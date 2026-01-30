@@ -2,26 +2,90 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:xterm/xterm.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import 'models/host.dart';
 import 'models/session.dart';
+import 'models/transfer_task.dart';
 import 'services/storage_service.dart';
-import 'services/ssh_service.dart';
+import 'services/transfer_service.dart';
+import 'l10n/app_localizations.dart';
+import 'widgets/transfer_panel.dart';
+import 'widgets/host_detail_panel.dart';
+import 'widgets/connected_shimmer.dart';
+import 'widgets/host_dialogs.dart';
+import 'widgets/file_browser_panel.dart';
+import 'widgets/host_list_panel.dart';
+import 'widgets/terminal_panel.dart';
 
 void main() {
   runApp(const SimpleTermApp());
 }
 
-class SimpleTermApp extends StatelessWidget {
+class SimpleTermApp extends StatefulWidget {
   const SimpleTermApp({super.key});
+
+  @override
+  State<SimpleTermApp> createState() => SimpleTermAppState();
+  
+  /// 全局访问语言切换
+  static SimpleTermAppState? of(BuildContext context) {
+    return context.findAncestorStateOfType<SimpleTermAppState>();
+  }
+}
+
+class SimpleTermAppState extends State<SimpleTermApp> {
+  final StorageService _storageService = StorageService();
+  Locale _locale = const Locale('zh', 'CN');
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadLanguage();
+    _setupLanguageChannel();
+  }
+  
+  /// 加载保存的语言偏好
+  Future<void> _loadLanguage() async {
+    final languageCode = await _storageService.getLanguage();
+    if (languageCode != null) {
+      setState(() {
+        _locale = languageCode == 'en' ? const Locale('en', 'US') : const Locale('zh', 'CN');
+      });
+    }
+  }
+  
+  /// 设置语言切换通道
+  void _setupLanguageChannel() {
+    const channel = MethodChannel('com.simpleterm/menu');
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'setLanguage') {
+        final languageCode = call.arguments as String;
+        await setLocale(languageCode == 'en' ? const Locale('en', 'US') : const Locale('zh', 'CN'));
+      }
+    });
+  }
+  
+  /// 切换语言
+  Future<void> setLocale(Locale locale) async {
+    await _storageService.saveLanguage(locale.languageCode);
+    setState(() => _locale = locale);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Simple Term',
       debugShowCheckedModeBanner: false,
+      locale: _locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizationsDelegate(),
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF1e1e1e),
         colorScheme: const ColorScheme.dark(
@@ -40,6 +104,7 @@ class SimpleTermApp extends StatelessWidget {
   }
 }
 
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -49,7 +114,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
-  final SSHService _sftpService = SSHService();  // 用于 SFTP 文件操作（独立连接）
   
   List<Host> _hosts = [];
   Host? _selectedHost;
@@ -62,17 +126,21 @@ class _HomeScreenState extends State<HomeScreen> {
   TerminalSession? get _activeSession => _activeSessionId != null ? _sessions[_activeSessionId] : null;
   Terminal? get _activeTerminal => _activeSession?.terminal;
   bool get _isConnected => _activeSession?.isConnected ?? false;
+  bool get _isSftpConnected => _activeSession?.isSftpConnected ?? false;
   bool get _isConnecting => _activeSession?.isConnecting ?? false;
   
-  // 文件管理器
-  List<SftpFileInfo> _files = [];
-  String _currentPath = '~';
-  bool _isLoadingFiles = false;
+  // 便捷访问当前会话的文件状态
+  List<SftpFileInfo> get _files => _activeSession?.files ?? [];
+  String get _currentPath => _activeSession?.currentPath ?? '~';
+  bool get _isLoadingFiles => _activeSession?.isLoadingFiles ?? false;
+  
   
   // 传输进度
   bool _isTransferring = false;
   String _transferMessage = '';
   double _transferProgress = 0.0;
+  List<TransferTask> _transferTasks = [];  // 全局传输任务列表
+  bool _showTransferPanel = false;  // 传输面板展开状态
   
   // 终端控制器（用于搜索高亮）
   late TerminalController _terminalController;
@@ -91,11 +159,96 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _terminalController = TerminalController();
     _loadHosts();
+    _setupMenuChannel();
+  }
+  
+  /// 设置系统菜单通道
+  void _setupMenuChannel() {
+    const channel = MethodChannel('com.simpleterm/menu');
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'clearAllData') {
+        _showClearDataDialog();
+      } else if (call.method == 'setLanguage') {
+        final languageCode = call.arguments as String;
+        final appState = SimpleTermApp.of(context);
+        appState?.setLocale(
+          languageCode == 'en' ? const Locale('en', 'US') : const Locale('zh', 'CN'),
+        );
+      }
+    });
+  }
+  
+  /// 显示清除数据确认对话框
+  void _showClearDataDialog() {
+    final l10n = AppLocalizations.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.clearAllData, style: const TextStyle(color: Colors.white)),
+        content: Text(
+          l10n.clearAllDataMessage,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              // 断开所有连接
+              for (final session in _sessions.values) {
+                await session.dispose();
+              }
+              _sessions.clear();
+              
+              // 清除存储的数据
+              await _storageService.clearAllData();
+              
+              setState(() {
+                _hosts = [];
+                _selectedHost = null;
+                _activeSessionId = null;
+                // 文件列表现在从 session 获取，不需要手动清空
+              });
+              
+              Navigator.pop(context);
+              _showSuccess(l10n.allDataCleared);
+            },
+            child: Text(l10n.clear),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadHosts() async {
     final hosts = await _storageService.getHosts();
     setState(() => _hosts = hosts);
+    // 加载持久化的传输任务
+    await _loadTransferTasks();
+  }
+
+  /// 加载持久化的传输任务
+  Future<void> _loadTransferTasks() async {
+    final tasksJson = await _storageService.getTransferTasks();
+    if (tasksJson.isNotEmpty) {
+      setState(() {
+        _transferTasks = tasksJson.map((json) => TransferTask.fromJson(json)).toList();
+      });
+    }
+  }
+
+  /// 保存传输任务（仅保存失败/取消的任务）
+  Future<void> _saveTransferTasks() async {
+    final tasksToSave = _transferTasks
+        .where((t) => t.isFailed || t.status == TransferStatus.cancelled)
+        .map((t) => t.toJson())
+        .toList();
+    await _storageService.saveTransferTasks(tasksToSave);
   }
 
   /// 检查主机是否已连接
@@ -160,9 +313,13 @@ class _HomeScreenState extends State<HomeScreen> {
         session!.isConnecting = false;
         _selectedHost = host;
       });
+      
+      // SSH 连接成功后，自动加载 SFTP 文件列表
+      _loadFilesForSession(session, host, password);
     } catch (e) {
       setState(() => session!.isConnecting = false);
-      _showError('连接失败: $e');
+      final l10n = AppLocalizations.of(context);
+      _showError('${l10n.connectionFailed}: $e');
     }
   }
 
@@ -172,8 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _activeSessionId = hostId;
         _selectedHost = _hosts.firstWhere((h) => h.id == hostId, orElse: () => _selectedHost!);
-        _files = [];
-        _currentPath = '~';
+        // 文件列表现在从 session 获取，不需要手动清空
       });
     }
   }
@@ -185,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_activeSessionId == hostId) {
         // 切换到另一个活动会话，或清空
         _activeSessionId = _sessions.keys.isNotEmpty ? _sessions.keys.first : null;
-        _files = [];
+        // 文件列表现在从 session 获取，不需要手动清空
       }
     });
   }
@@ -198,6 +354,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 断开指定主机的连接
   Future<void> _disconnectHost(String hostId) async {
+    // 检查是否正在传输
+    if (_isTransferring && _activeSessionId == hostId) {
+      final confirmed = await _showTransferWarningDialog();
+      if (!confirmed) return;
+    }
+    
     final session = _sessions[hostId];
     if (session != null) {
       await session.dispose();
@@ -208,21 +370,49 @@ class _HomeScreenState extends State<HomeScreen> {
       // 如果断开的是当前活动会话，切换到另一个
       if (_activeSessionId == hostId) {
         _activeSessionId = _sessions.keys.isNotEmpty ? _sessions.keys.first : null;
-        _files = [];
+        // 文件列表现在从 session 获取，不需要手动清空
       }
     });
   }
 
+  /// 显示传输中警告对话框
+  Future<bool> _showTransferWarningDialog() async {
+    final l10n = AppLocalizations.of(context);
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.transferInProgress, style: const TextStyle(color: Colors.white)),
+        content: Text(
+          l10n.transferContinueInBackground,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.disconnect),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _loadFiles(String path) async {
-    if (_selectedHost == null) return;
+    if (_selectedHost == null || _activeSession == null) return;
     
-    setState(() => _isLoadingFiles = true);
+    setState(() => _activeSession!.isLoadingFiles = true);
     
     try {
       final password = await _storageService.getPassword(_selectedHost!.id);
       if (password == null) return;
       
-      final files = await _sftpService.listDirectory(_selectedHost!, password, path);
+      final files = await _activeSession!.sftpService.listDirectory(_selectedHost!, password, path);
       // 排序：文件夹在前，然后按名称排序
       files.sort((a, b) {
         if (a.isDirectory && !b.isDirectory) return -1;
@@ -231,13 +421,39 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       
       setState(() {
-        _files = files;
-        _currentPath = path;
-        _isLoadingFiles = false;
+        _activeSession!.files = files;
+        _activeSession!.currentPath = path;
+        _activeSession!.isLoadingFiles = false;
+        _activeSession!.isSftpConnected = true;  // SFTP 已连接
       });
     } catch (e) {
-      setState(() => _isLoadingFiles = false);
-      _showError('加载文件失败: $e');
+      setState(() => _activeSession!.isLoadingFiles = false);
+      final l10n = AppLocalizations.of(context);
+      _showError('${l10n.loadFilesFailed}: $e');
+    }
+  }
+
+  /// SSH 连接后自动加载 SFTP 文件列表
+  Future<void> _loadFilesForSession(TerminalSession session, Host host, String password) async {
+    setState(() => session.isLoadingFiles = true);
+    
+    try {
+      final files = await session.sftpService.listDirectory(host, password, '~');
+      files.sort((a, b) {
+        if (a.isDirectory && !b.isDirectory) return -1;
+        if (!a.isDirectory && b.isDirectory) return 1;
+        return a.name.compareTo(b.name);
+      });
+      
+      setState(() {
+        session.files = files;
+        session.currentPath = '~';
+        session.isLoadingFiles = false;
+        session.isSftpConnected = true;  // SFTP 已连接
+      });
+    } catch (e) {
+      setState(() => session.isLoadingFiles = false);
+      // SFTP 连接失败，不显示错误（SSH 仍可用）
     }
   }
 
@@ -246,53 +462,200 @@ class _HomeScreenState extends State<HomeScreen> {
     
     // 如果正在传输，提示用户等待
     if (_isTransferring) {
-      _showError('请等待当前传输完成');
+      final l10n = AppLocalizations.of(context);
+      _showError(l10n.waitForTransfer);
       return;
     }
     
-    final result = await FilePicker.platform.pickFiles();
+    // 启用多文件选择
+    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
     if (result == null || result.files.isEmpty) return;
     
-    final file = result.files.first;
-    if (file.path == null) return;
+    final password = await _storageService.getPassword(_selectedHost!.id);
+    if (password == null) return;
     
-    // 显示底部进度条
+    // 处理远程路径
+    String remotePath = _currentPath;
+    if (remotePath == '~' || remotePath.startsWith('~/')) {
+      final homePath = _selectedHost!.username == 'root' ? '/root' : '/home/${_selectedHost!.username}';
+      remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
+    }
+    
+    // 创建传输任务列表
+    final hostEndpoint = '${_selectedHost!.username}@${_selectedHost!.hostname}:${_selectedHost!.port}';
+    final tasks = <TransferTask>[];
+    for (final file in result.files) {
+      if (file.path == null) continue;
+      final localFile = File(file.path!);
+      final fileSize = await localFile.length();
+      tasks.add(TransferTask(
+        localPath: file.path!,
+        remotePath: '$remotePath/${file.name}',
+        fileName: file.name,
+        totalSize: fileSize,
+        host: _selectedHost!,
+        hostName: _selectedHost!.name,
+        hostEndpoint: hostEndpoint,
+      ));
+    }
+    
+    if (tasks.isEmpty) return;
+    
+    final l10n = AppLocalizations.of(context);
+    int completedCount = 0;
+    
     setState(() {
       _isTransferring = true;
-      _transferMessage = '正在上传: ${file.name}';
+      _transferTasks.addAll(tasks);  // 添加到全局任务列表
+      _transferMessage = l10n.uploadProgressText(1, tasks.length);
       _transferProgress = 0.0;
     });
     
+    // 上传期间暂停空闲计时器
+    _activeSession?.sshService.pauseIdleTimer();
+    
     try {
-      final password = await _storageService.getPassword(_selectedHost!.id);
-      if (password == null) {
-        setState(() => _isTransferring = false);
-        return;
-      }
-      
-      // 处理远程路径
-      String remotePath = _currentPath;
-      if (remotePath == '~' || remotePath.startsWith('~/')) {
-        final homePath = _selectedHost!.username == 'root' ? '/root' : '/home/${_selectedHost!.username}';
-        remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
-      }
-      
-      await _sftpService.uploadFile(
-        _selectedHost!,
-        password,
-        file.path!,
-        '$remotePath/${file.name}',
-        onProgress: (progress) {
-          setState(() => _transferProgress = progress);
+      await _activeSession!.transferService.uploadFiles(
+        host: _selectedHost!,
+        password: password,
+        tasks: tasks,
+        onTaskUpdate: (task) {
+          setState(() {
+            // 更新当前任务信息
+            if (task.status == TransferStatus.uploading) {
+              _transferMessage = '${l10n.uploading}: ${task.fileName}';
+              _transferProgress = task.progress;
+            } else if (task.status == TransferStatus.verifying) {
+              _transferMessage = '${l10n.verifyingMd5}: ${task.fileName}';
+            } else if (task.status == TransferStatus.done) {
+              completedCount++;
+              _transferMessage = l10n.uploadProgressText(completedCount, tasks.length);
+              // 成功完成后自动从列表移除
+              _transferTasks.remove(task);
+            }
+          });
         },
       );
       
       setState(() => _isTransferring = false);
       _loadFiles(_currentPath);
-      _showSuccess('上传成功: ${file.name}');
+      
+      // 统计成功和失败数
+      final successCount = tasks.where((t) => t.isComplete).length;
+      final failCount = tasks.where((t) => t.isFailed).length;
+      
+      if (failCount == 0) {
+        _showSuccess('${l10n.uploadSuccess}: $successCount ${l10n.files}');
+      } else {
+        _showError('${l10n.uploadFailed}: $failCount / ${tasks.length}');
+      }
+      
+      // 保存失败/取消的任务
+      _saveTransferTasks();
     } catch (e) {
       setState(() => _isTransferring = false);
-      _showError('上传失败: $e');
+      _showError('${l10n.uploadFailed}: $e');
+      _saveTransferTasks();  // 保存失败的任务
+    } finally {
+      // 上传完成后恢复空闲计时器
+      _activeSession?.sshService.resetIdleTimer();
+    }
+  }
+
+  /// 拖放上传文件
+  Future<void> _uploadDroppedFiles(List<String> filePaths) async {
+    if (_selectedHost == null || filePaths.isEmpty) return;
+    
+    // 如果正在传输，提示用户等待
+    if (_isTransferring) {
+      final l10n = AppLocalizations.of(context);
+      _showError(l10n.waitForTransfer);
+      return;
+    }
+    
+    final password = await _storageService.getPassword(_selectedHost!.id);
+    if (password == null) return;
+    
+    // 处理远程路径
+    String remotePath = _currentPath;
+    if (remotePath == '~' || remotePath.startsWith('~/')) {
+      final homePath = _selectedHost!.username == 'root' ? '/root' : '/home/${_selectedHost!.username}';
+      remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
+    }
+    
+    // 创建传输任务列表
+    final hostEndpoint = '${_selectedHost!.username}@${_selectedHost!.hostname}:${_selectedHost!.port}';
+    final tasks = <TransferTask>[];
+    for (final path in filePaths) {
+      final localFile = File(path);
+      if (!await localFile.exists()) continue;
+      final fileSize = await localFile.length();
+      final fileName = path.split('/').last;
+      tasks.add(TransferTask(
+        localPath: path,
+        remotePath: '$remotePath/$fileName',
+        fileName: fileName,
+        totalSize: fileSize,
+        host: _selectedHost!,
+        hostName: _selectedHost!.name,
+        hostEndpoint: hostEndpoint,
+      ));
+    }
+    
+    if (tasks.isEmpty) return;
+    
+    final l10n = AppLocalizations.of(context);
+    int completedCount = 0;
+    
+    setState(() {
+      _isTransferring = true;
+      _transferTasks.addAll(tasks);
+      _transferMessage = l10n.uploadProgressText(1, tasks.length);
+      _transferProgress = 0.0;
+    });
+    
+    _activeSession?.sshService.pauseIdleTimer();
+    
+    try {
+      await _activeSession!.transferService.uploadFiles(
+        host: _selectedHost!,
+        password: password,
+        tasks: tasks,
+        onTaskUpdate: (task) {
+          setState(() {
+            if (task.status == TransferStatus.uploading) {
+              _transferMessage = '${l10n.uploading}: ${task.fileName}';
+              _transferProgress = task.progress;
+            } else if (task.status == TransferStatus.verifying) {
+              _transferMessage = '${l10n.verifyingMd5}: ${task.fileName}';
+            } else if (task.status == TransferStatus.done) {
+              completedCount++;
+              _transferMessage = l10n.uploadProgressText(completedCount, tasks.length);
+              _transferTasks.remove(task);
+            }
+          });
+        },
+      );
+      
+      setState(() => _isTransferring = false);
+      _loadFiles(_currentPath);
+      
+      final successCount = tasks.where((t) => t.isComplete).length;
+      final failCount = tasks.where((t) => t.isFailed).length;
+      
+      if (failCount == 0) {
+        _showSuccess('${l10n.uploadSuccess}: $successCount ${l10n.files}');
+      } else {
+        _showError('${l10n.uploadFailed}: $failCount / ${tasks.length}');
+      }
+      
+      _saveTransferTasks();
+    } catch (e) {
+      setState(() => _isTransferring = false);
+      _showError('${l10n.uploadFailed}: $e');
+      _saveTransferTasks();
+    } finally {
+      _activeSession?.sshService.resetIdleTimer();
     }
   }
 
@@ -301,17 +664,19 @@ class _HomeScreenState extends State<HomeScreen> {
     
     // 如果正在传输，提示用户等待
     if (_isTransferring) {
-      _showError('请等待当前传输完成');
+      final l10n = AppLocalizations.of(context);
+      _showError(l10n.waitForTransfer);
       return;
     }
     
     final downloadDir = await FilePicker.platform.getDirectoryPath();
     if (downloadDir == null) return;
     
+    final l10n = AppLocalizations.of(context);
     // 显示底部进度条
     setState(() {
       _isTransferring = true;
-      _transferMessage = '正在下载: $fileName';
+      _transferMessage = '${l10n.downloading}: $fileName';
       _transferProgress = 0.0;
     });
     
@@ -329,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen> {
         remotePath = remotePath == '~' ? homePath : remotePath.replaceFirst('~', homePath);
       }
       
-      await _sftpService.downloadFile(
+      await _activeSession!.sftpService.downloadFile(
         _selectedHost!,
         password,
         '$remotePath/$fileName',
@@ -340,10 +705,12 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       
       setState(() => _isTransferring = false);
-      _showSuccess('下载成功: $fileName');
+      final l10n2 = AppLocalizations.of(context);
+      _showSuccess('${l10n2.downloadSuccess}: $fileName');
     } catch (e) {
       setState(() => _isTransferring = false);
-      _showError('下载失败: $e');
+      final l10n2 = AppLocalizations.of(context);
+      _showError('${l10n2.downloadFailed}: $e');
     }
   }
 
@@ -475,23 +842,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showPasswordDialog(Host host) {
     final controller = TextEditingController();
+    final l10n = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF2d2d2d),
-        title: const Text('输入密码'),
+        title: Text(l10n.enterPassword),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'SSH 密码',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            hintText: l10n.sshPassword,
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(l10n.cancel),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -499,179 +867,114 @@ class _HomeScreenState extends State<HomeScreen> {
               await _storageService.savePassword(host.id, controller.text);
               _connectToHost(host);
             },
-            child: const Text('连接'),
+            child: Text(l10n.connect),
           ),
         ],
       ),
     );
   }
 
-  void _showAddHostDialog() {
-    final nameController = TextEditingController();
-    final hostnameController = TextEditingController();
-    final portController = TextEditingController(text: '22');
-    final usernameController = TextEditingController(text: 'root');
-    final passwordController = TextEditingController();
-    bool obscurePassword = true;
-
-    showDialog(
+  /// 显示主机右键菜单
+  void _showHostContextMenu(BuildContext context, Offset position, Host host, bool isConnected) async {
+    final result = await showMenu<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF2d2d2d),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          contentPadding: const EdgeInsets.all(24),
-          content: SizedBox(
-            width: 400,
-            child: Column(
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      color: const Color(0xFF2d2d2d),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      constraints: const BoxConstraints(minWidth: 100, maxWidth: 140),
+      items: [
+        PopupMenuItem(
+          value: 'edit',
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.edit, size: 14, color: Colors.white70),
+              const SizedBox(width: 8),
+              Text(AppLocalizations.of(context).edit, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ],
+          ),
+        ),
+        if (!isConnected)
+          PopupMenuItem(
+            value: 'delete',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 标题
-                const Text(
-                  '添加主机',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                
-                // 名称
-                const Text('名称', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: _inputDecoration('生产服务器'),
-                ),
-                const SizedBox(height: 16),
-                
-                // 主机地址
-                const Text('主机地址', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: hostnameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: _inputDecoration('192.168.1.100'),
-                ),
-                const SizedBox(height: 16),
-                
-                // 端口和用户名 - 同一行
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('端口', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: portController,
-                            style: const TextStyle(color: Colors.white),
-                            keyboardType: TextInputType.number,
-                            decoration: _inputDecoration('22'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('用户名', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: usernameController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: _inputDecoration('root'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                // 密码
-                const Text('密码', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: passwordController,
-                        obscureText: obscurePassword,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: _inputDecoration('可选'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
-                      style: TextButton.styleFrom(
-                        backgroundColor: const Color(0xFF007AFF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(obscurePassword ? '显示' : '隐藏'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                
-                // 按钮
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.grey,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                      child: const Text('取消', style: TextStyle(fontSize: 15)),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      onPressed: () async {
-                        if (nameController.text.isEmpty || hostnameController.text.isEmpty) {
-                          return;
-                        }
-                        final host = Host(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          name: nameController.text,
-                          hostname: hostnameController.text,
-                          port: int.tryParse(portController.text) ?? 22,
-                          username: usernameController.text.isEmpty ? 'root' : usernameController.text,
-                        );
-                        await _storageService.addHost(host);
-                        if (passwordController.text.isNotEmpty) {
-                          await _storageService.savePassword(host.id, passwordController.text);
-                        }
-                        await _loadHosts();
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF007AFF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: const Text('保存', style: TextStyle(fontSize: 15)),
-                    ),
-                  ],
-                ),
+                const Icon(Icons.delete, size: 14, color: Colors.red),
+                const SizedBox(width: 8),
+                Text(AppLocalizations.of(context).delete, style: const TextStyle(color: Colors.red, fontSize: 13)),
               ],
             ),
           ),
+      ],
+    );
+    
+    if (result == 'edit') {
+      _showEditHostDialog(host);
+    } else if (result == 'delete') {
+      _confirmDeleteHost(host);
+    }
+  }
+  
+  /// 确认删除主机
+  void _confirmDeleteHost(Host host) {
+    final l10n = AppLocalizations.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.confirmDelete, style: const TextStyle(color: Colors.white)),
+        content: Text(
+          l10n.deleteHostMessage,
+          style: const TextStyle(color: Colors.white70),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _storageService.deleteHost(host.id);
+              await _loadHosts();
+              if (_selectedHost?.id == host.id) {
+                setState(() => _selectedHost = null);
+              }
+            },
+            child: Text(l10n.delete),
+          ),
+        ],
       ),
     );
   }
+
+  /// 显示编辑主机对话框（使用抽离的组件）
+  void _showEditHostDialog(Host host) {
+    HostDialogs.showEditHostDialog(
+      context: context,
+      host: host,
+      inputDecoration: _inputDecoration,
+      onUpdate: _updateHost,
+    );
+  }
+
+  /// 显示添加主机对话框（使用抽离的组件）
+  void _showAddHostDialog() {
+    HostDialogs.showAddHostDialog(
+      context: context,
+      storageService: _storageService,
+      inputDecoration: _inputDecoration,
+      onHostAdded: _loadHosts,
+    );
+  }
+
 
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
@@ -688,21 +991,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _deleteHost(Host host) async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF2d2d2d),
-        title: const Text('确认删除'),
-        content: Text('确定要删除主机 "${host.name}" 吗？'),
+        title: Text(l10n.confirmDelete),
+        content: Text(l10n.confirmDeleteHost(host.name)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(l10n.cancel),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('删除'),
+            child: Text(l10n.delete),
           ),
         ],
       ),
@@ -716,7 +1020,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _selectedHost = null;
         }
       });
-      _showSuccess('已删除主机');
+      _showSuccess(l10n.hostDeleted);
     }
   }
 
@@ -734,140 +1038,97 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     await _loadHosts();
     setState(() => _selectedHost = updatedHost);
-    _showSuccess('已更新主机');
+    _showSuccess(AppLocalizations.of(context).hostUpdated);
+  }
+
+  /// 构建传输任务面板（使用抽离的组件）
+  Widget _buildTransferPanel() {
+    return TransferPanel(
+      tasks: _transferTasks,
+      onClose: () => setState(() => _showTransferPanel = false),
+      onCancel: _cancelTransfer,
+      onDelete: _deleteTransferAndRemoteFile,
+      onResume: _resumeTransfer,
+    );
+  }
+
+
+  /// 取消传输（保留远程文件，可续传）
+  void _cancelTransfer(TransferTask task) {
+    task.cancel();
+    setState(() {});
+    _saveTransferTasks();  // 持久化保存
+  }
+
+  /// 删除传输并删除远程文件
+  Future<void> _deleteTransferAndRemoteFile(TransferTask task) async {
+    // 先取消传输（如果正在进行）
+    task.cancel();
+    
+    // 尝试删除远程文件（使用任务保存的主机信息）
+    final password = await _storageService.getPassword(task.host.id);
+    if (password != null) {
+      try {
+        // 创建临时的 TransferService 来删除远程文件
+        final transferService = TransferService();
+        await transferService.deleteRemoteFile(
+          host: task.host,
+          password: password,
+          remotePath: task.remotePath,
+        );
+      } catch (e) {
+        // 显示删除失败提示
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('删除远程文件失败: $e')),
+          );
+        }
+      }
+    }
+    
+    // 从列表移除并保存
+    setState(() => _transferTasks.remove(task));
+    _saveTransferTasks();  // 持久化保存
+  }
+
+  /// 继续传输（复用已取消的任务记录）
+  Future<void> _resumeTransfer(TransferTask task) async {
+    if (_selectedHost == null) return;
+    
+    final password = await _storageService.getPassword(_selectedHost!.id);
+    if (password == null) return;
+    
+    // 重置任务状态
+    task.isCancelled = false;
+    task.status = TransferStatus.pending;
+    task.errorMessage = null;
+    setState(() {});
+    
+    // 暂停空闲计时器
+    _activeSession?.sshService.pauseIdleTimer();
+    
+    try {
+      await _activeSession!.transferService.uploadFiles(
+        host: _selectedHost!,
+        password: password,
+        tasks: [task],
+        onTaskUpdate: (t) => setState(() {}),
+      );
+    } catch (e) {
+      task.status = TransferStatus.failed;
+      task.errorMessage = e.toString();
+      setState(() {});
+    } finally {
+      _activeSession?.sshService.resetIdleTimer();
+    }
   }
 
   Widget _buildHostDetailPanel() {
-    if (_selectedHost == null) {
-      return const Center(
-        child: Text(
-          '选择一个主机查看详情',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    final host = _selectedHost!;
-    final nameController = TextEditingController(text: host.name);
-    final hostnameController = TextEditingController(text: host.hostname);
-    final portController = TextEditingController(text: host.port.toString());
-    final usernameController = TextEditingController(text: host.username);
-    final passwordController = TextEditingController();
-
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 名称
-              const Text('名称', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _inputDecoration('服务器名称'),
-              ),
-              const SizedBox(height: 16),
-
-              // 主机地址
-              const Text('主机地址', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: hostnameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _inputDecoration('IP 或域名'),
-              ),
-              const SizedBox(height: 16),
-
-              // 端口和用户名
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('端口', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: portController,
-                          style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.number,
-                          decoration: _inputDecoration('22'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('用户名', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: usernameController,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: _inputDecoration('root'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 密码
-              const Text('密码（留空保持不变）', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: passwordController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _inputDecoration('新密码'),
-              ),
-              const SizedBox(height: 32),
-
-              // 保存和删除按钮
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _updateHost(
-                        host,
-                        nameController.text,
-                        hostnameController.text,
-                        int.tryParse(portController.text) ?? 22,
-                        usernameController.text,
-                        passwordController.text.isEmpty ? null : passwordController.text,
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF007AFF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: const Text('保存修改', style: TextStyle(fontSize: 15)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: () => _deleteHost(host),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Text('删除', style: TextStyle(fontSize: 15)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    return HostDetailPanel(
+      host: _selectedHost,
+      onUpdate: _updateHost,
+      onDelete: _deleteHost,
+      inputDecoration: _inputDecoration,
     );
   }
 
@@ -878,586 +1139,88 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Expanded(
             child: Row(
-        children: [
-          // 侧边栏 - 主机列表和文件管理器
-          Container(
-            width: 250,
-            color: const Color(0xFF1e1e1e),
-            padding: const EdgeInsets.all(12),
-            child: Column(
               children: [
-                // 主机列表容器
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF353535),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                  // 标题栏（在圆角容器内）
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      children: [
-                        const Text(
-                          '主机列表',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white70,
-                          ),
+                // 侧边栏 - 主机列表和文件管理器
+                Container(
+                  width: 250,
+                  color: const Color(0xFF1e1e1e),
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      // 主机列表容器（使用抽离的组件）
+                      Expanded(
+                        flex: 1,
+                        child: HostListPanel(
+                          hosts: _hosts,
+                          selectedHost: _selectedHost,
+                          activeSessionId: _activeSessionId,
+                          isHostConnected: _isHostConnected,
+                          isHostConnecting: _isHostConnecting,
+                          onAddHost: _showAddHostDialog,
+                          onConnect: _connectToHost,
+                          onDisconnect: _disconnectHost,
+                          onSwitchSession: _switchToSession,
+                          onSelectHost: (host) => setState(() => _selectedHost = host),
+                          onShowContextMenu: _showHostContextMenu,
                         ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.add, size: 18),
-                          onPressed: _showAddHostDialog,
-                          tooltip: '添加主机',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // 主机列表
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(12),
-                        bottomRight: Radius.circular(12),
                       ),
-                      child: ListView.builder(
-                        itemCount: _hosts.length,
-                        itemBuilder: (context, index) {
-                          final host = _hosts[index];
-                          final isSelected = _selectedHost?.id == host.id;
-                          final isHostConnected = _isHostConnected(host.id);
-                          final isHostConnecting = _isHostConnecting(host.id);
-                          final isActiveSession = _activeSessionId == host.id;
-                      
-                      return GestureDetector(
-                        onTap: () {
-                          if (isHostConnected) {
-                            // 已连接的主机，切换到该会话
-                            _switchToSession(host.id);
-                          } else {
-                            // 未连接的主机，选中查看详情
-                            setState(() => _selectedHost = host);
-                          }
-                        },
-                        // 移除 onDoubleTap 消除单击延迟（使用播放按钮连接）
-                        child: isHostConnected
-                            ? Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: ConnectedShimmer(
-                                    isActive: isActiveSession,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8),
-                                        // 所有已连接主机都有边框，保持尺寸一致
-                                        border: Border.all(
-                                          color: isActiveSession 
-                                              ? const Color(0xFF32d74b) 
-                                              : Colors.transparent,
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: ListTile(
-                            dense: true,
-                            visualDensity: VisualDensity.compact,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                            title: Text(
-                              host.name,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isActiveSession ? Colors.white : (isSelected ? Colors.white : Colors.white70),
-                                fontWeight: isActiveSession ? FontWeight.w600 : FontWeight.normal,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${host.username}@${host.hostname}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isActiveSession ? Colors.white70 : Colors.grey,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // 连接中显示 loading
-                                if (isHostConnecting)
-                                  const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Color(0xFF007AFF),
-                                    ),
-                                  ),
-                                // 未连接且未在连接中才显示播放按钮
-                                if (!isHostConnecting && !isHostConnected)
-                                  IconButton(
-                                    icon: const Icon(Icons.power_settings_new, size: 18),
-                                    color: const Color(0xFF32d74b),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    tooltip: '连接',
-                                    onPressed: () => _connectToHost(host),
-                                  ),
-                                // 所有已连接的主机都显示断开按钮
-                                if (isHostConnected && !isHostConnecting)
-                                  IconButton(
-                                    icon: const Icon(Icons.stop, size: 18),
-                                    color: Colors.red,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    tooltip: '断开',
-                                    onPressed: () => _disconnectHost(host.id),
-                                  ),
-                              ],
-                            ),
-                            onTap: () {
-                              if (isHostConnected) {
-                                _switchToSession(host.id);
-                              } else {
-                                setState(() => _selectedHost = host);
-                              }
-                            },
-                          ),
-                        ),  // Container with border
-                      ),  // ConnectedShimmer
-                    ),  // ClipRRect
-                  )  // outer Container with margin
-                            : Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF2a2a2a) : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: ListTile(
-                                  dense: true,
-                                  visualDensity: VisualDensity.compact,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                                  title: Text(
-                                    host.name,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: isSelected ? Colors.white : Colors.white70,
-                                      fontWeight: FontWeight.normal,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    '${host.username}@${host.hostname}',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (isHostConnecting)
-                                        const SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Color(0xFF007AFF),
-                                          ),
-                                        ),
-                                      IconButton(
-                                          icon: const Icon(Icons.power_settings_new, size: 18),
-                                          color: const Color(0xFF32d74b),
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          tooltip: '连接',
-                                          onPressed: () => _connectToHost(host),
-                                        ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    setState(() => _selectedHost = host);
-                                  },
-                                ),
-                              ),
-                      );
-                    },
+                      const SizedBox(height: 12),
+                      // 文件管理器容器（使用抽离的组件）
+                      Expanded(
+                        flex: 1,
+                        child: FileBrowserPanel(
+                          isConnected: _isSftpConnected,
+                          isLoading: _isLoadingFiles,
+                          currentPath: _currentPath,
+                          files: _files,
+                          onLoadFiles: _loadFiles,
+                          onUpload: _uploadFile,
+                          onDownload: _downloadFile,
+                          onFilesDropped: _uploadDroppedFiles,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        ),
-        const SizedBox(height: 12),
-                // 文件管理器容器
+                // 主内容区 - 终端（使用抽离的组件）
                 Expanded(
-                  flex: 1,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF353535),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        // 标题栏
-                        Container(
-                          height: 40,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.folder_outlined, color: Colors.white70, size: 16),
-                              const SizedBox(width: 8),
-                              const Text(
-                                '文件',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const Spacer(),
-                              if (_isConnected)
-                                IconButton(
-                                  icon: const Icon(Icons.upload, size: 16),
-                                  color: Colors.white70,
-                                  onPressed: _uploadFile,
-                                  tooltip: '上传',
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                              if (_isConnected) const SizedBox(width: 8),
-                              if (_isConnected)
-                                IconButton(
-                                  icon: const Icon(Icons.refresh, size: 16),
-                                  color: Colors.white70,
-                                  onPressed: () => _loadFiles(_currentPath),
-                                  tooltip: '刷新',
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                ),
-                            ],
-                          ),
-                        ),
-                        // 路径输入框
-                        if (_isConnected)
-                          Container(
-                            height: 32,
-                            margin: const EdgeInsets.symmetric(horizontal: 8),
-                            child: TextField(
-                              style: const TextStyle(fontSize: 12, color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: '输入路径...',
-                                hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
-                                filled: true,
-                                fillColor: const Color(0xFF0d0d0d),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide: BorderSide.none,
-                                ),
-                              ),
-                              controller: TextEditingController(text: _currentPath),
-                              onSubmitted: (value) => _loadFiles(value),
-                            ),
-                          ),
-                        if (_isConnected) const SizedBox(height: 8),
-                        // 文件列表
-                        Expanded(
-                          child: _isConnected
-                              ? _isLoadingFiles
-                                  ? const Center(
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      ),
-                                    )
-                                  : _files.isEmpty
-                                      ? Center(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Text(
-                                                '点击加载文件',
-                                                style: TextStyle(color: Colors.grey, fontSize: 12),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              ElevatedButton(
-                                                onPressed: () => _loadFiles('~'),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(0xFF007AFF),
-                                                  foregroundColor: Colors.white,
-                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                                  minimumSize: Size.zero,
-                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                ),
-                                                child: const Text('加载', style: TextStyle(fontSize: 12)),
-                                              ),
-                                            ],
-                                          ),
-                                        )
-                                      : ListView.builder(
-                                          itemCount: _files.length,
-                                          itemBuilder: (context, index) {
-                                            final file = _files[index];
-                                            if (file.name.startsWith('.')) return const SizedBox.shrink();
-                                            return ListTile(
-                                              dense: true,
-                                              visualDensity: VisualDensity.compact,
-                                              leading: Icon(
-                                                file.isDirectory ? Icons.folder : Icons.insert_drive_file_outlined,
-                                                color: file.isDirectory ? const Color(0xFF007AFF) : Colors.grey,
-                                                size: 18,
-                                              ),
-                                              title: Text(
-                                                file.name,
-                                                style: const TextStyle(fontSize: 12, color: Colors.white70),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              trailing: file.isDirectory
-                                                  ? null
-                                                  : IconButton(
-                                                      icon: const Icon(Icons.download, size: 16),
-                                                      color: Colors.white70,
-                                                      onPressed: () => _downloadFile(file.name),
-                                                      tooltip: '下载',
-                                                      padding: EdgeInsets.zero,
-                                                      constraints: const BoxConstraints(),
-                                                    ),
-                                              onTap: file.isDirectory
-                                                  ? () => _loadFiles('$_currentPath/${file.name}')
-                                                  : null,
-                                            );
-                                          },
-                                        )
-                              : const Center(
-                                  child: Text(
-                                    '连接后查看文件',
-                                    style: TextStyle(color: Colors.grey, fontSize: 12),
-                                  ),
-                                ),
-                        ),
-                      ],
-                    ),
+                  child: TerminalPanel(
+                    selectedHost: _selectedHost,
+                    isConnected: _isConnected,
+                    activeTerminal: _activeTerminal,
+                    terminalController: _terminalController,
+                    terminalScrollController: _terminalScrollController,
+                    isSearching: _isSearching,
+                    searchController: _searchController,
+                    searchFocusNode: _searchFocusNode,
+                    searchMatchLines: _searchMatchLines,
+                    currentMatchIndex: _currentMatchIndex,
+                    onToggleSearch: () {
+                      setState(() => _isSearching = !_isSearching);
+                      if (_isSearching) {
+                        Future.delayed(const Duration(milliseconds: 100), () {
+                          _searchFocusNode.requestFocus();
+                        });
+                      }
+                    },
+                    onCloseSearch: () {
+                      _clearSearchHighlights();
+                      setState(() => _isSearching = false);
+                      _searchController.clear();
+                    },
+                    onSearch: _searchTerminal,
+                    onNextMatch: _nextMatch,
+                    onPrevMatch: _prevMatch,
                   ),
                 ),
+                // 传输任务面板（右侧可收起）
+                if (_showTransferPanel)
+                  _buildTransferPanel(),
               ],
             ),
           ),
-          
-      // 主内容区 - 终端
-      Expanded(
-            child: Container(
-              margin: const EdgeInsets.only(right: 12, bottom: 12, top: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0d0d0d),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  // 工具栏（在终端容器内部）
-                  Container(
-                    height: 36,
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      children: [
-                        if (_selectedHost != null)
-                          Text(
-                            '${_selectedHost!.username}@${_selectedHost!.hostname}',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          )
-                        else
-                          const Text(
-                            '选择一个主机开始连接',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                      ],
-                    ),
-                  ),
-                  // 终端视图
-                  Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 8, left: 8, right: 8),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0d0d0d),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: _isConnected
-                          ? Focus(
-                              onKeyEvent: (node, event) {
-                                if (event is KeyDownEvent &&
-                                    event.logicalKey == LogicalKeyboardKey.keyF &&
-                                    HardwareKeyboard.instance.isMetaPressed) {
-                                  setState(() => _isSearching = !_isSearching);
-                                  if (_isSearching) {
-                                    Future.delayed(const Duration(milliseconds: 100), () {
-                                      _searchFocusNode.requestFocus();
-                                    });
-                                  }
-                                  return KeyEventResult.handled;
-                                }
-                                if (event is KeyDownEvent &&
-                                    event.logicalKey == LogicalKeyboardKey.escape &&
-                                    _isSearching) {
-                                  _clearSearchHighlights();
-                                  setState(() => _isSearching = false);
-                                  _searchController.clear();
-                                  return KeyEventResult.handled;
-                                }
-                                return KeyEventResult.ignored;
-                              },
-                              child: Stack(
-                                children: [
-                                  ScrollConfiguration(
-                                    behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                                    child: _activeTerminal != null
-                                        ? TerminalView(
-                                            _activeTerminal!,
-                                            controller: _terminalController,
-                                            scrollController: _terminalScrollController,
-                                            autofocus: true,
-                                            alwaysShowCursor: true,
-                                            theme: const TerminalTheme(
-                                              cursor: Color(0xFFFFFFFF),
-                                              selection: Color(0x80FFFFFF),
-                                              foreground: Color(0xFFFFFFFF),
-                                              background: Color(0xFF0d0d0d),
-                                              black: Color(0xFF000000),
-                                              white: Color(0xFFFFFFFF),
-                                              red: Color(0xFFFF5555),
-                                              green: Color(0xFF50FA7B),
-                                              yellow: Color(0xFFF1FA8C),
-                                              blue: Color(0xFF6272A4),
-                                              magenta: Color(0xFFFF79C6),
-                                              cyan: Color(0xFF8BE9FD),
-                                              brightBlack: Color(0xFF6272A4),
-                                              brightWhite: Color(0xFFFFFFFF),
-                                              brightRed: Color(0xFFFF6E6E),
-                                              brightGreen: Color(0xFF69FF94),
-                                              brightYellow: Color(0xFFFFFFA5),
-                                              brightBlue: Color(0xFFD6ACFF),
-                                              brightMagenta: Color(0xFFFF92DF),
-                                              brightCyan: Color(0xFFA4FFFF),
-                                              searchHitBackground: Color(0xFFFFFF00),
-                                              searchHitBackgroundCurrent: Color(0xFFFF6600),
-                                              searchHitForeground: Color(0xFF000000),
-                                            ),
-                                            textStyle: const TerminalStyle(
-                                              fontSize: 14,
-                                              fontFamily: 'Menlo',
-                                            ),
-                                          )
-                                        : const SizedBox.shrink(),
-                                  ),
-                                  // 搜索框
-                                  if (_isSearching)
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: Container(
-                                        width: 280,
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF2d2d2d),
-                                          borderRadius: BorderRadius.circular(8),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.3),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: TextField(
-                                                controller: _searchController,
-                                                focusNode: _searchFocusNode,
-                                                style: const TextStyle(color: Colors.white, fontSize: 13),
-                                                decoration: const InputDecoration(
-                                                  hintText: '搜索...',
-                                                  hintStyle: TextStyle(color: Colors.grey),
-                                                  border: InputBorder.none,
-                                                  isDense: true,
-                                                  contentPadding: EdgeInsets.zero,
-                                                ),
-                                                onChanged: (value) {
-                                                  _searchTerminal(value);
-                                                },
-                                                onSubmitted: (_) {
-                                                  _nextMatch();
-                                                  _searchFocusNode.requestFocus();
-                                                },
-                                              ),
-                                            ),
-                                            if (_searchMatchLines.isNotEmpty)
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                                child: Text(
-                                                  '${_currentMatchIndex + 1}/${_searchMatchLines.length}',
-                                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                                                ),
-                                              ),
-                                            GestureDetector(
-                                              onTap: _prevMatch,
-                                              child: const Icon(Icons.keyboard_arrow_up, color: Colors.grey, size: 20),
-                                            ),
-                                            GestureDetector(
-                                              onTap: _nextMatch,
-                                              child: const Icon(Icons.keyboard_arrow_down, color: Colors.grey, size: 20),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            GestureDetector(
-                                              onTap: () {
-                                                _clearSearchHighlights();
-                                                setState(() => _isSearching = false);
-                                                _searchController.clear();
-                                              },
-                                              child: const Icon(Icons.close, color: Colors.grey, size: 18),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            )
-                          : _selectedHost != null
-                              ? _buildHostDetailPanel()
-                              : const Center(
-                                  child: Text(
-                                    '选择一个主机查看详情\n双击主机开始连接',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.grey, height: 1.5),
-                                  ),
-                                ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-            ),
           // 底部进度条
-          if (_isTransferring)
+          if (_isTransferring || _transferTasks.isNotEmpty)
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1467,23 +1230,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Row(
                     children: [
                       Text(
-                        _transferMessage,
+                        _isTransferring ? _transferMessage : AppLocalizations.of(context).transferTasks,
                         style: const TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                       const Spacer(),
-                      Text(
-                        '${(_transferProgress * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      if (_isTransferring)
+                        Text(
+                          '${(_transferProgress * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      const SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: () => setState(() => _showTransferPanel = !_showTransferPanel),
+                        child: Text(
+                          AppLocalizations.of(context).viewDetails,
+                          style: const TextStyle(color: Color(0xFF007AFF), fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
                 ),
-                LinearProgressIndicator(
-                  value: _transferProgress,
-                  backgroundColor: const Color(0xFF333333),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF007AFF)),
-                  minHeight: 3,
-                ),
+                if (_isTransferring)
+                  LinearProgressIndicator(
+                    value: _transferProgress,
+                    backgroundColor: const Color(0xFF333333),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF007AFF)),
+                    minHeight: 3,
+                  ),
               ],
             ),
         ],
@@ -1499,72 +1272,5 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     _sessions.clear();
     super.dispose();
-  }
-}
-
-/// 已连接状态的光效动画组件
-class ConnectedShimmer extends StatefulWidget {
-  final Widget child;
-  final bool isActive;
-  
-  const ConnectedShimmer({
-    super.key,
-    required this.child,
-    this.isActive = false,
-  });
-
-  @override
-  State<ConnectedShimmer> createState() => _ConnectedShimmerState();
-}
-
-class _ConnectedShimmerState extends State<ConnectedShimmer>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            gradient: LinearGradient(
-              begin: Alignment(-1.0 + 2.0 * _controller.value, 0),
-              end: Alignment(-0.5 + 2.0 * _controller.value, 0),
-              colors: widget.isActive
-                  ? [
-                      const Color(0xFF1a3a1a),
-                      const Color(0xFF2a5a2a),
-                      const Color(0xFF1a3a1a),
-                    ]
-                  : [
-                      const Color(0xFF1a3a1a),
-                      const Color(0xFF254525),
-                      const Color(0xFF1a3a1a),
-                    ],
-              stops: const [0.0, 0.5, 1.0],
-            ),
-          ),
-          child: child,
-        );
-      },
-      child: widget.child,
-    );
   }
 }

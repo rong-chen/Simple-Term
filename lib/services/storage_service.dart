@@ -92,4 +92,47 @@ class StorageService {
     final Map<String, dynamic> map = jsonDecode(json);
     return map.map((k, v) => MapEntry(k, v.toString()));
   }
+  
+  /// 清除所有数据（主机和密码）
+  Future<void> clearAllData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_hostsKey);
+    await prefs.remove(_passwordsKey);
+  }
+  
+  /// 保存语言偏好
+  Future<void> saveLanguage(String languageCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('simple_term_language', languageCode);
+  }
+  
+  /// 获取语言偏好
+  Future<String?> getLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('simple_term_language');
+  }
+  
+  // ========== 传输任务持久化 ==========
+  static const String _transferTasksKey = 'simple_term_transfer_tasks';
+  
+  /// 保存传输任务列表（仅保存失败/取消的任务）
+  Future<void> saveTransferTasks(List<Map<String, dynamic>> tasks) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_transferTasksKey, jsonEncode(tasks));
+  }
+  
+  /// 获取传输任务列表
+  Future<List<Map<String, dynamic>>> getTransferTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString(_transferTasksKey);
+    if (json == null) return [];
+    final List<dynamic> list = jsonDecode(json);
+    return list.map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+  
+  /// 清除传输任务列表
+  Future<void> clearTransferTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_transferTasksKey);
+  }
 }

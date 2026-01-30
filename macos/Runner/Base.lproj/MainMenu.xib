@@ -298,6 +298,38 @@
                         </items>
                     </menu>
                 </menuItem>
+                <menuItem title="Data" id="Dtm-Cz-dta">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Data" id="Dta-mn-uSb">
+                        <items>
+                            <menuItem title="Clear All Data..." id="Clr-Al-Dta">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="clearAllData:" target="Voe-Tx-rLC" id="Clr-Cn-Act"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Language" id="Lng-Mn-uIt">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Language" id="Lng-sb-uMn">
+                        <items>
+                            <menuItem title="中文" id="Lng-zh-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="setLanguageChinese:" target="Voe-Tx-rLC" id="Lng-zh-Con"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="English" id="Lng-en-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="setLanguageEnglish:" target="Voe-Tx-rLC" id="Lng-en-Con"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
                 <menuItem title="Window" id="aUF-d1-5bR">
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Window" systemMenu="window" id="Td7-aD-5lo">
