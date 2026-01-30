@@ -1,5 +1,5 @@
 #!/bin/bash
-# Simple Term macOS 应用打包脚本
+# Simple Term macOS Flutter 应用打包脚本
 # 用法: ./build.sh [release|debug] [--dmg]
 
 set -e
@@ -20,66 +20,52 @@ done
 APP_NAME="Simple Term"
 VERSION="1.0.0"
 
-echo "🔨 $APP_NAME 打包脚本"
+echo "🔨 $APP_NAME 打包脚本 (Flutter)"
 echo "================================"
 
 # 进入项目目录
 cd "$(dirname "$0")"
 
+# 检查 Flutter
+if ! command -v flutter &> /dev/null; then
+    echo "❌ Flutter 未安装"
+    exit 1
+fi
+
 # 安装依赖
-echo "📦 检查依赖..."
-if [ ! -d "node_modules" ]; then
-    echo "安装 npm 依赖..."
-    npm install
-fi
-
-# 进入 macos 目录
-cd macos
-
-# 安装 Pod 依赖
-echo "📦 检查 CocoaPods..."
-if [ ! -d "Pods" ]; then
-    echo "安装 Pod 依赖..."
-    pod install
-fi
+echo "📦 安装 Flutter 依赖..."
+flutter pub get
 
 # 构建配置
 if [ "$BUILD_CONFIG" = "release" ]; then
-    CONFIGURATION="Release"
     echo "🚀 构建 Release 版本..."
+    flutter build macos --release
+    BUILD_DIR="build/macos/Build/Products/Release"
 else
-    CONFIGURATION="Debug"
     echo "🔧 构建 Debug 版本..."
+    flutter build macos --debug
+    BUILD_DIR="build/macos/Build/Products/Debug"
 fi
 
-# 构建应用
-echo "🏗️  开始构建..."
-xcodebuild -workspace yzTermApp.xcworkspace \
-    -configuration "$CONFIGURATION" \
-    -scheme yzTermApp-macOS \
-    -derivedDataPath build \
-    build
-
 # 输出路径
-APP_PATH="build/Build/Products/$CONFIGURATION/yzTermApp.app"
+APP_PATH="$BUILD_DIR/Simple Term.app"
 
-if [ -f "$APP_PATH/Contents/MacOS/yzTermApp" ]; then
+if [ -d "$APP_PATH" ]; then
     echo ""
     echo "✅ 构建成功！"
     echo "================================"
     
-    # 复制到项目根目录，并重命名
-    rm -rf "../$APP_NAME.app"
-    cp -R "$APP_PATH" "../$APP_NAME.app"
+    # 复制到项目根目录
+    rm -rf "./$APP_NAME.app"
+    cp -R "$APP_PATH" "./$APP_NAME.app"
     
-    echo "📦 已生成: $(cd .. && pwd)/$APP_NAME.app"
+    echo "📦 已生成: $(pwd)/$APP_NAME.app"
     
     # 创建 DMG
     if [ "$CREATE_DMG" = true ]; then
         echo ""
         echo "📀 正在创建 DMG..."
         
-        cd ..
         DMG_NAME="${APP_NAME}_v${VERSION}.dmg"
         DMG_TEMP="dmg_temp"
         

@@ -1,39 +1,42 @@
-require 'pathname'
+platform :osx, '10.15'
 
-ws_dir = Pathname.new(__dir__)
-ws_dir = ws_dir.parent until
-  File.exist?("#{ws_dir}/node_modules/react-native-macos/scripts/react_native_pods.rb") ||
-  ws_dir.expand_path.to_s == '/'
-require "#{ws_dir}/node_modules/react-native-macos/scripts/react_native_pods.rb"
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-prepare_react_native_project!
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
 
-target 'yzTermApp-macOS' do
-  platform :macos, '14.0'
-  use_native_modules!
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'ephemeral', 'Flutter-Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure \"flutter pub get\" is executed first"
+  end
 
-  # Flags change depending on the env values.
-  flags = get_default_flags()
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Flutter-Generated.xcconfig, then run \"flutter pub get\""
+end
 
-  use_react_native!(
-    :path => '../node_modules/react-native-macos',
-    :hermes_enabled => false,  # 禁用 Hermes，使用 JSC
-    :fabric_enabled => ENV['RCT_NEW_ARCH_ENABLED'] == '1',
-    # An absolute path to your application root.
-    :app_path => "#{Pod::Config.instance.installation_root}/.."
-  )
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
-  post_install do |installer|
-    react_native_post_install(installer)
-    
-    # 复制 react-native-vector-icons 字体到 Resources
-    installer.pods_project.targets.each do |target|
-      if target.name == "yzTermApp-macOS"
-        resources_build_phase = target.resources_build_phase
-        if resources_build_phase.nil?
-          resources_build_phase = target.new_resources_build_phase
-        end
-      end
-    end
+flutter_macos_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+
+  flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_macos_build_settings(target)
   end
 end
