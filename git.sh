@@ -33,7 +33,8 @@ if [ -n "$TAG" ]; then
 fi
 echo ""
 
-read -p "确认提交? (y/n): " CONFIRM
+read -p "确认提交? (Y/n): " CONFIRM
+CONFIRM=${CONFIRM:-y}  # 默认为 y
 if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
     echo "❌ 已取消"
     exit 0
@@ -49,9 +50,12 @@ git add .
 echo "💾 提交更改..."
 git commit -m "$COMMIT_MSG"
 
+# 获取当前分支名称
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 # 推送代码
-echo "⬆️  推送代码..."
-git push origin main
+echo "⬆️  推送代码到 $BRANCH..."
+git push origin "$BRANCH"
 
 # 如果有 tag，创建并推送
 if [ -n "$TAG" ]; then
