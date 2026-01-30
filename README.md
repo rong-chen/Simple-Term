@@ -21,11 +21,7 @@ A simple and elegant macOS SSH terminal client.
 
 **Menu Bar** → **Language** → Select **English** or **中文**
 
-### 📋 Roadmap
-
-- [ ] Resumable file transfers
-
-### 📦 Installation
+###  Installation
 
 Download the DMG file and drag it to the Applications folder.
 
@@ -69,10 +65,6 @@ Updates are released periodically.
 ### 🌐 切换语言
 
 **菜单栏** → **Language** → 选择 **English** 或 **中文**
-
-### 📋 下版本任务清单
-
-- [ ] 断点续传
 
 ### 📦 安装
 
