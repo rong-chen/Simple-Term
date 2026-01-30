@@ -4,9 +4,9 @@
 
 set -e
 
-# 默认构建 Release 版本
+# 默认构建 Release 版本并创建 DMG
 BUILD_CONFIG=${1:-release}
-CREATE_DMG=false
+CREATE_DMG=true
 
 # 检查参数
 for arg in "$@"; do
@@ -89,10 +89,13 @@ if [ -d "$APP_PATH" ]; then
         rm -rf "$DMG_TEMP"
         
         echo "✅ DMG 已创建: $(pwd)/$DMG_NAME"
+        
+        # 删除 .app 文件，只保留 DMG
+        rm -rf "./$APP_NAME.app"
     fi
     
     echo ""
-    echo "提示: 双击 '$APP_NAME.app' 即可运行"
+    echo "提示: 双击 '$DMG_NAME' 安装应用"
 else
     echo ""
     echo "❌ 构建失败"

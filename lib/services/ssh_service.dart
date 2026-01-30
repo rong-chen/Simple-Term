@@ -9,8 +9,26 @@ import '../models/host.dart';
 class SSHService {
   SSHClient? _client;
   SSHSession? _session;
+  Timer? _idleTimer;
+  
+  /// 空闲超时时间（5分钟）
+  static const Duration idleTimeout = Duration(minutes: 5);
+  
+  /// 断线回调
+  void Function()? onIdleDisconnect;
   
   bool get isConnected => _client != null;
+
+  /// 重置空闲计时器（每次有用户操作时调用）
+  void resetIdleTimer() {
+    _idleTimer?.cancel();
+    if (_client != null) {
+      _idleTimer = Timer(idleTimeout, () {
+        disconnect();
+        onIdleDisconnect?.call();
+      });
+    }
+  }
 
   /// 连接到 SSH 服务器
   Future<void> connect(Host host, String password, {int width = 200, int height = 50}) async {
@@ -20,7 +38,11 @@ class SSHService {
       socket,
       username: host.username,
       onPasswordRequest: () => password,
+      keepAliveInterval: const Duration(seconds: 30),  // 每30秒发送心跳包
     );
+    
+    // 启动空闲计时器
+    resetIdleTimer();
 
     // 创建交互式 shell
     _session = await _client!.shell(
@@ -47,6 +69,7 @@ class SSHService {
   void write(String data) {
     if (_session != null) {
       _session!.write(utf8.encode(data));
+      resetIdleTimer();  // 用户有输入，重置空闲计时器
     }
   }
 
@@ -57,6 +80,8 @@ class SSHService {
 
   /// 断开连接
   Future<void> disconnect() async {
+    _idleTimer?.cancel();
+    _idleTimer = null;
     _session?.close();
     _client?.close();
     _session = null;

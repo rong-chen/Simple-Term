@@ -83,6 +83,15 @@ class _HomeScreenState extends State<HomeScreen> {
     _terminal = Terminal(maxLines: 10000);
     _terminalController = TerminalController();
     _loadHosts();
+    
+    // 设置空闲断线回调
+    _sshService.onIdleDisconnect = () {
+      setState(() {
+        _isConnected = false;
+        _terminal.buffer.clear();
+        _files = [];
+      });
+    };
   }
 
   Future<void> _loadHosts() async {

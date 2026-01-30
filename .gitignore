@@ -41,3 +41,6 @@ DerivedData
 *.log
 .env
 .env.local
+
+# DMG packaging
+Simple Term*.dmg
