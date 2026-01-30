@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -76,6 +77,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<int> _searchMatchLines = [];  // 存储匹配的行号
   int _currentMatchIndex = -1;  // 当前匹配索引
   final ScrollController _terminalScrollController = ScrollController();
+  
+  // SSH 输出订阅
+  StreamSubscription<String>? _outputSubscription;
 
   @override
   void initState() {
@@ -114,10 +118,17 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
+      // 取消旧的输出订阅
+      await _outputSubscription?.cancel();
+      _outputSubscription = null;
+      
+      // 重新创建 Terminal 对象（确保干净状态）
+      _terminal = Terminal(maxLines: 10000);
+      
       await _sshService.connect(host, password);
       
-      // 监听输出
-      _sshService.output.listen((data) {
+      // 监听输出（保存订阅引用）
+      _outputSubscription = _sshService.output.listen((data) {
         _terminal.write(data);
       });
 
@@ -143,6 +154,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _disconnect() async {
+    await _outputSubscription?.cancel();
+    _outputSubscription = null;
     await _sshService.disconnect();
     setState(() {
       _isConnected = false;
