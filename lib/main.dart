@@ -244,6 +244,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _uploadFile() async {
     if (_selectedHost == null) return;
     
+    // 如果正在传输，提示用户等待
+    if (_isTransferring) {
+      _showError('请等待当前传输完成');
+      return;
+    }
+    
     final result = await FilePicker.platform.pickFiles();
     if (result == null || result.files.isEmpty) return;
     
@@ -292,6 +298,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _downloadFile(String fileName) async {
     if (_selectedHost == null) return;
+    
+    // 如果正在传输，提示用户等待
+    if (_isTransferring) {
+      _showError('请等待当前传输完成');
+      return;
+    }
     
     final downloadDir = await FilePicker.platform.getDirectoryPath();
     if (downloadDir == null) return;
@@ -934,15 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             setState(() => _selectedHost = host);
                           }
                         },
-                        onDoubleTap: () {
-                          if (!isHostConnected && !isHostConnecting) {
-                            _connectToHost(host);
-                          }
-                        },
-                        onSecondaryTap: () {
-                          // 右键显示主机详情
-                          setState(() => _selectedHost = host);
-                        },
+                        // 移除 onDoubleTap 消除单击延迟（使用播放按钮连接）
                         child: isHostConnected
                             ? Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -998,7 +1002,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 // 未连接且未在连接中才显示播放按钮
                                 if (!isHostConnecting && !isHostConnected)
                                   IconButton(
-                                    icon: const Icon(Icons.play_arrow, size: 18),
+                                    icon: const Icon(Icons.power_settings_new, size: 18),
                                     color: const Color(0xFF32d74b),
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
@@ -1068,9 +1072,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                             color: Color(0xFF007AFF),
                                           ),
                                         ),
-                                      if (!isHostConnecting)
-                                        IconButton(
-                                          icon: const Icon(Icons.play_arrow, size: 18),
+                                      IconButton(
+                                          icon: const Icon(Icons.power_settings_new, size: 18),
                                           color: const Color(0xFF32d74b),
                                           padding: EdgeInsets.zero,
                                           constraints: const BoxConstraints(),
