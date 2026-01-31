@@ -18,7 +18,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 ; Output settings
-OutputDir=..\..\
+OutputDir=..\
 OutputBaseFilename=SimpleTerm_Setup_v{#MyAppVersion}
 SetupIconFile=runner\resources\app_icon.ico
 Compression=lzma
