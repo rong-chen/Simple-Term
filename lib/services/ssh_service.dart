@@ -51,9 +51,10 @@ class SSHService {
     // 启动空闲计时器
     resetIdleTimer();
 
-    // 创建交互式 shell
+    // 创建交互式 shell，显式设置终端类型为 xterm-256color
     _session = await _client!.shell(
       pty: SSHPtyConfig(
+        type: 'xterm-256color',
         width: width,
         height: height,
       ),

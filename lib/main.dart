@@ -287,7 +287,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      await session.sshService.connect(host, password);
+      // 使用终端的实际尺寸连接（如果可用）
+      final termWidth = session.terminal.viewWidth;
+      final termHeight = session.terminal.viewHeight;
+      await session.sshService.connect(host, password, width: termWidth, height: termHeight);
       
       // 设置空闲断线回调
       session.sshService.onIdleDisconnect = () {
@@ -312,6 +315,15 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         session!.isConnecting = false;
         _selectedHost = host;
+      });
+      
+      // 等待 UI 渲染完成后，同步实际的终端尺寸到远程服务器
+      // 使用延迟确保 TerminalView 已完成布局计算
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (session == null || !session.isConnected) return;
+        final actualWidth = session.terminal.viewWidth;
+        final actualHeight = session.terminal.viewHeight;
+        session.sshService.resize(actualWidth, actualHeight);
       });
       
       // SSH 连接成功后，自动加载 SFTP 文件列表
