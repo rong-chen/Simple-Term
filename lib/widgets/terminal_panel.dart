@@ -115,6 +115,7 @@ class TerminalPanel extends StatelessWidget {
                                     scrollController: terminalScrollController,
                                     autofocus: true,
                                     alwaysShowCursor: true,
+                                    hardwareKeyboardOnly: true,
                                     theme: const TerminalTheme(
                                       cursor: Color(0xFFFFFFFF),
                                       selection: Color(0x80FFFFFF),
