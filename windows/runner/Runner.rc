@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "simple_term_flutter" "\0"
+            VALUE "CompanyName", "YuanZhiJia" "\0"
+            VALUE "FileDescription", "Simple Term - SSH Client" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "simple_term_flutter" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "simple_term_flutter.exe" "\0"
-            VALUE "ProductName", "simple_term_flutter" "\0"
+            VALUE "InternalName", "SimpleTerm" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 YuanZhiJia. All rights reserved." "\0"
+            VALUE "OriginalFilename", "SimpleTerm.exe" "\0"
+            VALUE "ProductName", "Simple Term" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
