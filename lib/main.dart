@@ -264,7 +264,12 @@ class _HomeScreenState extends State<HomeScreen> {
       _switchToSession(host.id);
       return;
     }
-    
+
+    // 如果正在连接，忽略重复点击
+    if (_isHostConnecting(host.id)) {
+      return;
+    }
+
     // 创建或获取会话
     var session = _sessions[host.id];
     if (session == null) {
