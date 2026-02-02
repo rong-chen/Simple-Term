@@ -1390,6 +1390,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onEditGroup: _showEditGroupDialog,
                           onDeleteGroup: _deleteGroup,
                           onMoveHost: _moveHostToGroup,
+                          onDataChanged: _loadHosts,
                         ),
                       ),
                       const SizedBox(height: 12),

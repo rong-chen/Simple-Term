@@ -146,4 +146,19 @@ class StringsEn {
   static const String deleteFailed = 'Delete failed';
   static const String operationFailed = 'Operation failed';
   static const String rename = 'Rename';
+  
+  // Import/Export
+  static const String exportData = 'Export';
+  static const String importData = 'Import';
+  static const String exportSuccess = 'Export successful';
+  static const String importSuccess = 'Import successful';
+  static const String importFailed = 'Import failed';
+  static const String exportFailed = 'Export failed';
+  static const String invalidFileFormat = 'Invalid file format';
+  static String importResult(int hosts, int groups) => 'Imported $hosts hosts and $groups groups';
+  static const String mergeImport = 'Merge';
+  static const String overwriteImport = 'Overwrite';
+  static const String importModeTitle = 'Choose Import Mode';
+  static const String mergeImportDesc = 'Keep existing data, only add new hosts and groups';
+  static const String overwriteImportDesc = 'Clear existing data and use imported configuration';
 }

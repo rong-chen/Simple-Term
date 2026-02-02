@@ -176,6 +176,21 @@ class StorageService {
     final Map<String, dynamic> map = jsonDecode(json);
     return map.map((k, v) => MapEntry(k, v.toString()));
   }
+
+  /// 获取编码后的密码（用于导出，不解码）
+  Future<String?> _getEncodedPassword(String hostId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final passwords = await _getPasswords(prefs);
+    return passwords[hostId];
+  }
+
+  /// 直接保存编码后的密码（用于导入，不再编码）
+  Future<void> _saveEncodedPassword(String hostId, String encodedPassword) async {
+    final prefs = await SharedPreferences.getInstance();
+    final passwords = await _getPasswords(prefs);
+    passwords[hostId] = encodedPassword;
+    await prefs.setString(_passwordsKey, jsonEncode(passwords));
+  }
   
   /// 清除所有数据（主机、分组和密码）
   Future<void> clearAllData() async {
@@ -219,5 +234,99 @@ class StorageService {
   Future<void> clearTransferTasks() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_transferTasksKey);
+  }
+
+  /// 导出所有数据（主机、分组、密码）为 JSON 字符串
+  /// 密码保持 Base64 编码状态，不会明文导出
+  Future<String> exportData() async {
+    final hosts = await getHosts();
+    final groups = await getGroups();
+    
+    // 收集所有密码（保持编码状态）
+    final Map<String, String?> passwords = {};
+    for (final host in hosts) {
+      passwords[host.id] = await _getEncodedPassword(host.id);
+    }
+    
+    final exportData = {
+      'version': 1,
+      'exportTime': DateTime.now().toIso8601String(),
+      'hosts': hosts.map((h) => h.toJson()).toList(),
+      'groups': groups.map((g) => g.toJson()).toList(),
+      'passwords': passwords,
+    };
+    
+    return jsonEncode(exportData);
+  }
+
+  /// 从 JSON 字符串导入数据
+  /// [mergeMode] 为 true 时合并数据（跳过已存在的主机），为 false 时覆盖所有数据
+  Future<({int hostsImported, int groupsImported})> importData(String jsonString, {bool mergeMode = true}) async {
+    final Map<String, dynamic> data = jsonDecode(jsonString);
+    
+    // 解析导入的数据
+    final List<dynamic> hostsJson = data['hosts'] ?? [];
+    final List<dynamic> groupsJson = data['groups'] ?? [];
+    final Map<String, dynamic> passwordsJson = data['passwords'] ?? {};
+    
+    final importedHosts = hostsJson.map((json) => Host.fromJson(json)).toList();
+    final importedGroups = groupsJson.map((json) => HostGroup.fromJson(json)).toList();
+    
+    int hostsImported = 0;
+    int groupsImported = 0;
+    
+    if (mergeMode) {
+      // 合并模式：只添加不存在的数据
+      final existingHosts = await getHosts();
+      final existingGroups = await getGroups();
+      
+      // 合并分组
+      for (final group in importedGroups) {
+        final exists = existingGroups.any((g) => g.id == group.id || g.name == group.name);
+        if (!exists) {
+          existingGroups.add(group);
+          groupsImported++;
+        }
+      }
+      await saveGroups(existingGroups);
+      
+      // 合并主机（检查 hostname+port+username 是否重复）
+      for (final host in importedHosts) {
+        final exists = existingHosts.any((h) => 
+          h.hostname == host.hostname && 
+          h.port == host.port && 
+          h.username == host.username
+        );
+        if (!exists) {
+          existingHosts.add(host);
+          hostsImported++;
+          // 导入密码（直接保存编码后的密码，不再二次编码）
+          final password = passwordsJson[host.id];
+          if (password != null && password.toString().isNotEmpty) {
+            await _saveEncodedPassword(host.id, password.toString());
+          }
+        }
+      }
+      await saveHosts(existingHosts);
+    } else {
+      // 覆盖模式：清除现有数据并导入
+      await clearAllData();
+      
+      await saveGroups(importedGroups);
+      groupsImported = importedGroups.length;
+      
+      await saveHosts(importedHosts);
+      hostsImported = importedHosts.length;
+      
+      // 导入所有密码（直接保存编码后的密码，不再二次编码）
+      for (final host in importedHosts) {
+        final password = passwordsJson[host.id];
+        if (password != null && password.toString().isNotEmpty) {
+          await _saveEncodedPassword(host.id, password.toString());
+        }
+      }
+    }
+    
+    return (hostsImported: hostsImported, groupsImported: groupsImported);
   }
 }

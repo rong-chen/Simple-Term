@@ -146,4 +146,19 @@ class StringsZh {
   static const String deleteFailed = '删除失败';
   static const String operationFailed = '操作失败';
   static const String rename = '重命名';
+  
+  // 导入导出
+  static const String exportData = '导出配置';
+  static const String importData = '导入配置';
+  static const String exportSuccess = '导出成功';
+  static const String importSuccess = '导入成功';
+  static const String importFailed = '导入失败';
+  static const String exportFailed = '导出失败';
+  static const String invalidFileFormat = '无效的文件格式';
+  static String importResult(int hosts, int groups) => '成功导入 $hosts 个主机，$groups 个分组';
+  static const String mergeImport = '合并导入';
+  static const String overwriteImport = '覆盖导入';
+  static const String importModeTitle = '选择导入方式';
+  static const String mergeImportDesc = '保留现有数据，只添加新的主机和分组';
+  static const String overwriteImportDesc = '清除现有数据，完全使用导入的配置';
 }

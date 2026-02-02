@@ -2,6 +2,16 @@
 
 [English](#english) | [中文](#中文)
 
+## 📋 Roadmap / 开发计划
+
+| Feature / 功能 | Priority / 优先级 | Status / 状态 |
+|----------------|-------------------|---------------|
+| Terminal Theme & Font Customization / 终端主题字体自定义 | ⭐ High | 🔜 Planned |
+| Terminal Log Export / 终端日志保存 | ⭐ High | 🔜 Planned |
+| Command History & Snippets / 命令历史快捷命令 | ⭐⭐ Medium | 🔜 Planned |
+| Multi-Tab per Host / 同一主机多标签 | ⭐⭐⭐ Low | 📋 Backlog |
+| Split Terminal / 分屏终端 | ⭐⭐⭐ Low | 📋 Backlog |
+
 ---
 
 ## English

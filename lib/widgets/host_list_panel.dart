@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/host.dart';
 import '../models/group.dart';
 import '../l10n/app_localizations.dart';
+import '../services/import_export_service.dart';
 import 'connected_shimmer.dart';
 
 /// 主机列表面板回调类型
@@ -29,6 +30,7 @@ class HostListPanel extends StatefulWidget {
   final GroupCallback? onEditGroup;
   final GroupCallback? onDeleteGroup;
   final MoveHostCallback? onMoveHost;
+  final VoidCallback? onDataChanged;  // 导入数据后的回调
 
   const HostListPanel({
     super.key,
@@ -48,6 +50,7 @@ class HostListPanel extends StatefulWidget {
     this.onEditGroup,
     this.onDeleteGroup,
     this.onMoveHost,
+    this.onDataChanged,
   });
 
   @override
@@ -57,6 +60,7 @@ class HostListPanel extends StatefulWidget {
 class _HostListPanelState extends State<HostListPanel> {
   final Set<String> _expandedGroups = {HostGroup.defaultGroupId};
   String? _dragTargetGroupId;
+  final ImportExportService _importExportService = ImportExportService();
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +106,15 @@ class _HostListPanelState extends State<HostListPanel> {
             ),
           ),
           const Spacer(),
+          // 导入导出按钮
+          IconButton(
+            icon: const Icon(Icons.more_horiz, size: 16),
+            onPressed: () => _showImportExportMenu(context),
+            tooltip: l10n.exportData,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 8),
           // 添加分组按钮
           IconButton(
             icon: const Icon(Icons.create_new_folder_outlined, size: 16),
@@ -121,6 +134,17 @@ class _HostListPanelState extends State<HostListPanel> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showImportExportMenu(BuildContext context) {
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final Offset offset = button.localToGlobal(Offset.zero);
+    
+    _importExportService.showImportExportMenu(
+      context,
+      Offset(offset.dx + 12, offset.dy + 40),
+      onDataChanged: () => widget.onDataChanged?.call(),
     );
   }
 
@@ -370,6 +394,41 @@ class _HostListPanelState extends State<HostListPanel> {
     );
   }
 
+  /// 构建统一的 trailing 按钮，三种状态互斥：连接中 -> loading, 已连接 -> 断开按钮, 未连接 -> 连接按钮
+  Widget _buildTrailingWidget(Host host, bool connected, bool isConnecting, AppLocalizations l10n) {
+    if (isConnecting) {
+      // 连接中：显示 loading
+      return const SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Color(0xFF007AFF),
+        ),
+      );
+    } else if (connected) {
+      // 已连接：显示断开按钮
+      return IconButton(
+        icon: const Icon(Icons.stop, size: 18),
+        color: Colors.red,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        tooltip: l10n.disconnect,
+        onPressed: () => widget.onDisconnect(host.id),
+      );
+    } else {
+      // 未连接：显示连接按钮
+      return IconButton(
+        icon: const Icon(Icons.power_settings_new, size: 18),
+        color: const Color(0xFF32d74b),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        tooltip: l10n.connect,
+        onPressed: () => widget.onConnect(host),
+      );
+    }
+  }
+
   Widget _buildHostItemContent(
     BuildContext context,
     Host host,
@@ -380,7 +439,7 @@ class _HostListPanelState extends State<HostListPanel> {
     AppLocalizations l10n,
   ) {
     if (connected) {
-      return _buildConnectedHostItem(context, host, isSelected, isConnecting, isActiveSession, l10n);
+      return _buildConnectedHostItem(context, host, isSelected, isActiveSession, l10n);
     } else {
       return _buildDisconnectedHostItem(context, host, isSelected, isConnecting, l10n);
     }
@@ -390,7 +449,6 @@ class _HostListPanelState extends State<HostListPanel> {
     BuildContext context,
     Host host,
     bool isSelected,
-    bool isConnecting,
     bool isActiveSession,
     AppLocalizations l10n,
   ) {
@@ -429,29 +487,7 @@ class _HostListPanelState extends State<HostListPanel> {
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isConnecting)
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Color(0xFF007AFF),
-                      ),
-                    ),
-                  if (!isConnecting)
-                    IconButton(
-                      icon: const Icon(Icons.stop, size: 18),
-                      color: Colors.red,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      tooltip: l10n.disconnect,
-                      onPressed: () => widget.onDisconnect(host.id),
-                    ),
-                ],
-              ),
+              trailing: _buildTrailingWidget(host, true, false, l10n),
               onTap: () {
                 widget.onSwitchSession(host.id);
               },
@@ -496,28 +532,7 @@ class _HostListPanelState extends State<HostListPanel> {
           ),
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isConnecting)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF007AFF),
-                ),
-              ),
-            IconButton(
-              icon: const Icon(Icons.power_settings_new, size: 18),
-              color: const Color(0xFF32d74b),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              tooltip: l10n.connect,
-              onPressed: () => widget.onConnect(host),
-            ),
-          ],
-        ),
+        trailing: _buildTrailingWidget(host, false, isConnecting, l10n),
         onTap: () {
           widget.onSelectHost(host);
         },

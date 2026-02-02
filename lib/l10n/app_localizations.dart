@@ -182,6 +182,21 @@ class AppLocalizations {
   String get renamed => isZh ? StringsZh.renamed : StringsEn.renamed;
   String get deleteFailed => isZh ? StringsZh.deleteFailed : StringsEn.deleteFailed;
   String get operationFailed => isZh ? StringsZh.operationFailed : StringsEn.operationFailed;
+  
+  // 导入导出
+  String get exportData => isZh ? StringsZh.exportData : StringsEn.exportData;
+  String get importDataLabel => isZh ? StringsZh.importData : StringsEn.importData;
+  String get exportSuccess => isZh ? StringsZh.exportSuccess : StringsEn.exportSuccess;
+  String get importSuccess => isZh ? StringsZh.importSuccess : StringsEn.importSuccess;
+  String get importFailed => isZh ? StringsZh.importFailed : StringsEn.importFailed;
+  String get exportFailed => isZh ? StringsZh.exportFailed : StringsEn.exportFailed;
+  String get invalidFileFormat => isZh ? StringsZh.invalidFileFormat : StringsEn.invalidFileFormat;
+  String importResult(int hosts, int groups) => isZh ? StringsZh.importResult(hosts, groups) : StringsEn.importResult(hosts, groups);
+  String get mergeImport => isZh ? StringsZh.mergeImport : StringsEn.mergeImport;
+  String get overwriteImport => isZh ? StringsZh.overwriteImport : StringsEn.overwriteImport;
+  String get importModeTitle => isZh ? StringsZh.importModeTitle : StringsEn.importModeTitle;
+  String get mergeImportDesc => isZh ? StringsZh.mergeImportDesc : StringsEn.mergeImportDesc;
+  String get overwriteImportDesc => isZh ? StringsZh.overwriteImportDesc : StringsEn.overwriteImportDesc;
 }
 
 /// 本地化代理
