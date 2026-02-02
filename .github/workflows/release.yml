@@ -191,6 +191,7 @@ jobs:
       - name: Generate appcast.xml
         run: |
           VERSION="${{ needs.build-macos.outputs.version }}"
+          BUILD_NUMBER="${{ github.run_number }}"
           
           # macOS 信息
           DMG_NAME="${{ needs.build-macos.outputs.dmg_name }}"
@@ -217,7 +218,7 @@ jobs:
               <!-- macOS Update -->
               <item>
                 <title>Version ${VERSION}</title>
-                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
                 <pubDate>${PUB_DATE}</pubDate>
                 <description><![CDATA[
@@ -235,7 +236,7 @@ jobs:
               <!-- Windows Update -->
               <item>
                 <title>Version ${VERSION}</title>
-                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
                 <pubDate>${PUB_DATE}</pubDate>
                 <description><![CDATA[
