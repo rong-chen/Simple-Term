@@ -7,35 +7,35 @@
     
     <!-- macOS Update -->
     <item>
-      <title>Version 1.1.0</title>
-      <sparkle:version>1.1.0</sparkle:version>
-      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
-      <pubDate>Mon, 02 Feb 2026 09:49:32 +0000</pubDate>
+      <title>Version 1.1.1</title>
+      <sparkle:version>1.1.1</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <pubDate>Mon, 02 Feb 2026 10:05:39 +0000</pubDate>
       <description><![CDATA[
-        <h2>Simple Term v1.1.0</h2>
-        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.0">GitHub Release</a></p>
+        <h2>Simple Term v1.1.1</h2>
+        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.1">GitHub Release</a></p>
       ]]></description>
       <enclosure 
-        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.0/SimpleTerm_v1.1.0_macOS.dmg"
-        sparkle:edSignature="RY9X9s+A54sKD3E7TwgiR8/ElynM9Zhbb1x485VLEF9CNx7rHp4A2YAX5wgRu/kYtYLaC+tV/yW2k27LpYMrBw=="
-        length="24679123"
+        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.1/SimpleTerm_v1.1.1_macOS.dmg"
+        sparkle:edSignature="3PJ4oeMi0N8BNE1OTetma31YHE3eaHGVihOaArCPUDBO2xfVlNlQ9Orchz8V9OwtZK2gj2LvjPMwSOudhaj4CQ=="
+        length="24679118"
         type="application/octet-stream"
         sparkle:os="macos"/>
     </item>
     
     <!-- Windows Update -->
     <item>
-      <title>Version 1.1.0</title>
-      <sparkle:version>1.1.0</sparkle:version>
-      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
-      <pubDate>Mon, 02 Feb 2026 09:49:32 +0000</pubDate>
+      <title>Version 1.1.1</title>
+      <sparkle:version>1.1.1</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <pubDate>Mon, 02 Feb 2026 10:05:39 +0000</pubDate>
       <description><![CDATA[
-        <h2>Simple Term v1.1.0</h2>
-        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.0">GitHub Release</a></p>
+        <h2>Simple Term v1.1.1</h2>
+        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.1">GitHub Release</a></p>
       ]]></description>
       <enclosure 
-        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.0/SimpleTerm_Setup_v1.1.0.exe"
-        length="12066055"
+        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.1/SimpleTerm_Setup_v1.1.1.exe"
+        length="12066488"
         type="application/octet-stream"
         sparkle:os="windows"/>
     </item>
