@@ -5,37 +5,40 @@
     <description>Simple Term SSH Client Appcast</description>
     <language>zh-cn</language>
     
-    <!-- 
-    发布新版本时，在此处添加新的 item 块。
-    
-    使用 sign_update 命令为发布包签名：
-    /tmp/bin/sign_update -s keys/sparkle_private_key.pem SimpleTerm_v1.x.x_macOS.dmg
-    
-    签名后将输出的 signature 填入 sparkle:edSignature 属性。
-    -->
-    
-    <!-- 示例：取消注释并修改以下内容发布正式版本
+    <!-- macOS Update -->
     <item>
-      <title>Version 1.0.0</title>
-      <sparkle:version>1.0.0</sparkle:version>
-      <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
-      <pubDate>Sun, 02 Feb 2026 10:00:00 +0800</pubDate>
+      <title>Version 1.1.0</title>
+      <sparkle:version>1.1.0</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <pubDate>Mon, 02 Feb 2026 09:49:32 +0000</pubDate>
       <description><![CDATA[
-        <h2>初始版本</h2>
-        <ul>
-          <li>多主机管理</li>
-          <li>SSH 密钥认证</li>
-          <li>SFTP 文件传输</li>
-        </ul>
+        <h2>Simple Term v1.1.0</h2>
+        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.0">GitHub Release</a></p>
       ]]></description>
       <enclosure 
-        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.0.0/SimpleTerm_v1.0.0_macOS.dmg"
-        sparkle:edSignature="YOUR_SIGNATURE_HERE"
-        length="12345678"
+        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.0/SimpleTerm_v1.1.0_macOS.dmg"
+        sparkle:edSignature="RY9X9s+A54sKD3E7TwgiR8/ElynM9Zhbb1x485VLEF9CNx7rHp4A2YAX5wgRu/kYtYLaC+tV/yW2k27LpYMrBw=="
+        length="24679123"
         type="application/octet-stream"
         sparkle:os="macos"/>
     </item>
-    -->
+    
+    <!-- Windows Update -->
+    <item>
+      <title>Version 1.1.0</title>
+      <sparkle:version>1.1.0</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <pubDate>Mon, 02 Feb 2026 09:49:32 +0000</pubDate>
+      <description><![CDATA[
+        <h2>Simple Term v1.1.0</h2>
+        <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/v1.1.0">GitHub Release</a></p>
+      ]]></description>
+      <enclosure 
+        url="https://github.com/rong-chen/Simple-Term/releases/download/v1.1.0/SimpleTerm_Setup_v1.1.0.exe"
+        length="12066055"
+        type="application/octet-stream"
+        sparkle:os="windows"/>
+    </item>
     
   </channel>
 </rss>
