@@ -13,18 +13,15 @@ class TransferService {
   /// 
   /// [tasks] 传输任务列表
   /// [onTaskUpdate] 任务状态更新回调
+  /// [password] 密码（密码认证时必需，密钥认证时可选用于解密私钥）
   Future<void> uploadFiles({
     required Host host,
-    required String password,
+    String? password,
     required List<TransferTask> tasks,
     required void Function(TransferTask task) onTaskUpdate,
   }) async {
     final socket = await SSHSocket.connect(host.hostname, host.port);
-    final client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-    );
+    final client = await _createSSHClient(socket, host, password);
 
     try {
       final sftp = await client.sftp();
@@ -56,6 +53,24 @@ class TransferService {
       }
     } finally {
       client.close();
+    }
+  }
+
+  /// 创建 SSH 客户端（支持密码和密钥认证）
+  Future<SSHClient> _createSSHClient(SSHSocket socket, Host host, String? password) async {
+    if (host.authType == AuthType.privateKey) {
+      // 密钥认证
+      var keyContent = host.privateKeyContent;
+      if (keyContent == null || keyContent.isEmpty) {
+        throw Exception('Private key not found');
+      }
+      // 标准化换行符（兼容 Windows/Mac/Linux 的 PEM 文件）
+      keyContent = keyContent.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+      final keypairs = SSHKeyPair.fromPem(keyContent, password);
+      return SSHClient(socket, username: host.username, identities: [...keypairs]);
+    } else {
+      // 密码认证
+      return SSHClient(socket, username: host.username, onPasswordRequest: () => password ?? '');
     }
   }
 
@@ -148,15 +163,11 @@ class TransferService {
   /// 删除远程文件（用于删除操作）
   Future<void> deleteRemoteFile({
     required Host host,
-    required String password,
+    String? password,
     required String remotePath,
   }) async {
     final socket = await SSHSocket.connect(host.hostname, host.port);
-    final client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-    );
+    final client = await _createSSHClient(socket, host, password);
 
     try {
       final sftp = await client.sftp();

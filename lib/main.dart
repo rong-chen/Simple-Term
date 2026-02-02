@@ -509,8 +509,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await FilePicker.platform.pickFiles(allowMultiple: true);
     if (result == null || result.files.isEmpty) return;
     
-    final password = await _storageService.getPassword(_selectedHost!.id);
-    if (password == null) return;
+    // 仅密码认证需要密码，密钥认证可以没有密码
+    String? password;
+    if (_selectedHost!.authType == AuthType.password) {
+      password = await _storageService.getPassword(_selectedHost!.id);
+      if (password == null) return;
+    }
     
     // 处理远程路径
     String remotePath = _currentPath;
@@ -611,8 +615,12 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     
-    final password = await _storageService.getPassword(_selectedHost!.id);
-    if (password == null) return;
+    // 仅密码认证需要密码，密钥认证可以没有密码
+    String? password;
+    if (_selectedHost!.authType == AuthType.password) {
+      password = await _storageService.getPassword(_selectedHost!.id);
+      if (password == null) return;
+    }
     
     // 处理远程路径
     String remotePath = _currentPath;
