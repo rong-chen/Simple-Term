@@ -10,6 +10,11 @@ jobs:
   build-macos:
     name: Build macOS App
     runs-on: macos-latest
+    outputs:
+      dmg_name: ${{ steps.create_dmg.outputs.dmg_name }}
+      version: ${{ steps.create_dmg.outputs.version }}
+      signature: ${{ steps.sign_dmg.outputs.signature }}
+      file_size: ${{ steps.sign_dmg.outputs.file_size }}
     
     steps:
       - name: Checkout code
@@ -29,6 +34,7 @@ jobs:
         run: flutter build macos --release
       
       - name: Create DMG
+        id: create_dmg
         run: |
           APP_NAME="Simple Term"
           VERSION="${GITHUB_REF_NAME#v}"
@@ -46,6 +52,41 @@ jobs:
               "$DMG_NAME"
           
           rm -rf "$DMG_TEMP"
+          
+          echo "dmg_name=$DMG_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Download Sparkle Tools
+        run: |
+          curl -L -o /tmp/Sparkle.tar.xz "https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz"
+          cd /tmp && tar -xf Sparkle.tar.xz
+          chmod +x /tmp/bin/sign_update
+      
+      - name: Sign DMG with Sparkle
+        id: sign_dmg
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          DMG_NAME="${{ steps.create_dmg.outputs.dmg_name }}"
+          
+          # 将私钥写入临时文件
+          echo "$SPARKLE_PRIVATE_KEY" > /tmp/sparkle_key.pem
+          
+          # 签名 DMG（sign_update 直接输出签名字符串）
+          SIGNATURE=$(/tmp/bin/sign_update -s /tmp/sparkle_key.pem "$DMG_NAME")
+          
+          # 获取文件大小
+          FILE_SIZE=$(stat -f%z "$DMG_NAME")
+          
+          echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
+          echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
+          
+          # 清理私钥
+          rm -f /tmp/sparkle_key.pem
+          
+          echo "✅ DMG 签名完成"
+          echo "   签名: $SIGNATURE"
+          echo "   大小: $FILE_SIZE bytes"
       
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
@@ -57,6 +98,10 @@ jobs:
   build-windows:
     name: Build Windows App
     runs-on: windows-latest
+    outputs:
+      exe_name: ${{ steps.get_exe_name.outputs.exe_name }}
+      exe_size: ${{ steps.get_exe_name.outputs.exe_size }}
+      version: ${{ steps.get_exe_name.outputs.version }}
     
     steps:
       - name: Checkout code
@@ -94,6 +139,18 @@ jobs:
           # 使用 Inno Setup 创建安装程序
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$VERSION "windows\installer.iss"
       
+      - name: Get EXE Info
+        id: get_exe_name
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}".TrimStart('v')
+          $EXE_NAME = "SimpleTerm_Setup_v${VERSION}.exe"
+          $EXE_SIZE = (Get-Item $EXE_NAME).Length
+          
+          echo "exe_name=$EXE_NAME" >> $env:GITHUB_OUTPUT
+          echo "exe_size=$EXE_SIZE" >> $env:GITHUB_OUTPUT
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+      
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -111,6 +168,12 @@ jobs:
       contents: write
     
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
@@ -126,6 +189,74 @@ jobs:
       - name: List release files
         run: ls -la ./releases
       
+      - name: Generate appcast.xml
+        run: |
+          VERSION="${{ needs.build-macos.outputs.version }}"
+          
+          # macOS 信息
+          DMG_NAME="${{ needs.build-macos.outputs.dmg_name }}"
+          MAC_SIGNATURE="${{ needs.build-macos.outputs.signature }}"
+          MAC_SIZE="${{ needs.build-macos.outputs.file_size }}"
+          MAC_URL="https://github.com/rong-chen/Simple-Term/releases/download/${GITHUB_REF_NAME}/${DMG_NAME}"
+          
+          # Windows 信息
+          EXE_NAME="${{ needs.build-windows.outputs.exe_name }}"
+          WIN_SIZE="${{ needs.build-windows.outputs.exe_size }}"
+          WIN_URL="https://github.com/rong-chen/Simple-Term/releases/download/${GITHUB_REF_NAME}/${EXE_NAME}"
+          
+          PUB_DATE=$(date -R)
+          
+          # 生成 appcast.xml (支持 macOS Sparkle 和 Windows WinSparkle)
+          cat > docs/appcast.xml << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Simple Term Updates</title>
+              <description>Simple Term SSH Client Appcast</description>
+              <language>zh-cn</language>
+              
+              <!-- macOS Update -->
+              <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <pubDate>${PUB_DATE}</pubDate>
+                <description><![CDATA[
+                  <h2>Simple Term v${VERSION}</h2>
+                  <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/${GITHUB_REF_NAME}">GitHub Release</a></p>
+                ]]></description>
+                <enclosure 
+                  url="${MAC_URL}"
+                  sparkle:edSignature="${MAC_SIGNATURE}"
+                  length="${MAC_SIZE}"
+                  type="application/octet-stream"
+                  sparkle:os="macos"/>
+              </item>
+              
+              <!-- Windows Update -->
+              <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <pubDate>${PUB_DATE}</pubDate>
+                <description><![CDATA[
+                  <h2>Simple Term v${VERSION}</h2>
+                  <p>查看完整更新日志: <a href="https://github.com/rong-chen/Simple-Term/releases/tag/${GITHUB_REF_NAME}">GitHub Release</a></p>
+                ]]></description>
+                <enclosure 
+                  url="${WIN_URL}"
+                  length="${WIN_SIZE}"
+                  type="application/octet-stream"
+                  sparkle:os="windows"/>
+              </item>
+              
+            </channel>
+          </rss>
+          EOF
+          
+          echo "✅ appcast.xml 已生成（包含 macOS 和 Windows）"
+          cat docs/appcast.xml
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -135,3 +266,12 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Commit and Push appcast.xml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add docs/appcast.xml
+          git commit -m "chore: update appcast.xml for ${GITHUB_REF_NAME}" || echo "No changes to commit"
+          git push origin master

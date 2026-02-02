@@ -161,4 +161,11 @@ class StringsEn {
   static const String importModeTitle = 'Choose Import Mode';
   static const String mergeImportDesc = 'Keep existing data, only add new hosts and groups';
   static const String overwriteImportDesc = 'Clear existing data and use imported configuration';
+  
+  // Auto Update
+  static const String checkForUpdates = 'Check for Updates';
+  static const String checkingUpdates = 'Checking for updates...';
+  static const String noUpdatesAvailable = 'You are up to date';
+  static const String updateCheckFailed = 'Failed to check for updates';
 }
+

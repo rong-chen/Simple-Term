@@ -38,6 +38,9 @@ class AppDelegate: FlutterAppDelegate {
     NSLog("setLanguageEnglish called, channel exists: %@", methodChannel != nil ? "true" : "false")
     methodChannel?.invokeMethod("setLanguage", arguments: "en")
   }
+  
+  @IBAction func checkForUpdates(_ sender: Any) {
+    NSLog("checkForUpdates called")
+    methodChannel?.invokeMethod("checkForUpdates", arguments: nil)
+  }
 }
-
-

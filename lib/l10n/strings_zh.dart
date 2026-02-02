@@ -161,4 +161,11 @@ class StringsZh {
   static const String importModeTitle = '选择导入方式';
   static const String mergeImportDesc = '保留现有数据，只添加新的主机和分组';
   static const String overwriteImportDesc = '清除现有数据，完全使用导入的配置';
+  
+  // 自动更新
+  static const String checkForUpdates = '检查更新';
+  static const String checkingUpdates = '正在检查更新...';
+  static const String noUpdatesAvailable = '已是最新版本';
+  static const String updateCheckFailed = '检查更新失败';
 }
+

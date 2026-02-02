@@ -44,3 +44,6 @@ DerivedData
 
 # DMG packaging
 Simple Term*.dmg
+
+# Sparkle signing keys (NEVER commit!)
+keys/

@@ -11,6 +11,7 @@ import 'models/session.dart';
 import 'models/transfer_task.dart';
 import 'services/storage_service.dart';
 import 'services/transfer_service.dart';
+import 'services/update_service.dart';
 import 'l10n/app_localizations.dart';
 import 'widgets/transfer_panel.dart';
 import 'widgets/host_detail_panel.dart';
@@ -162,6 +163,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _terminalController = TerminalController();
     _loadHosts();
     _setupMenuChannel();
+    _initUpdateService();
+  }
+  
+  /// 初始化自动更新服务
+  void _initUpdateService() {
+    UpdateService.init();
   }
   
   /// 设置系统菜单通道
@@ -176,6 +183,8 @@ class _HomeScreenState extends State<HomeScreen> {
         appState?.setLocale(
           languageCode == 'en' ? const Locale('en', 'US') : const Locale('zh', 'CN'),
         );
+      } else if (call.method == 'checkForUpdates') {
+        UpdateService.checkForUpdates();
       }
     });
   }

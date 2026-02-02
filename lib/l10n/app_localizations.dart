@@ -197,6 +197,12 @@ class AppLocalizations {
   String get importModeTitle => isZh ? StringsZh.importModeTitle : StringsEn.importModeTitle;
   String get mergeImportDesc => isZh ? StringsZh.mergeImportDesc : StringsEn.mergeImportDesc;
   String get overwriteImportDesc => isZh ? StringsZh.overwriteImportDesc : StringsEn.overwriteImportDesc;
+  
+  // 自动更新
+  String get checkForUpdates => isZh ? StringsZh.checkForUpdates : StringsEn.checkForUpdates;
+  String get checkingUpdates => isZh ? StringsZh.checkingUpdates : StringsEn.checkingUpdates;
+  String get noUpdatesAvailable => isZh ? StringsZh.noUpdatesAvailable : StringsEn.noUpdatesAvailable;
+  String get updateCheckFailed => isZh ? StringsZh.updateCheckFailed : StringsEn.updateCheckFailed;
 }
 
 /// 本地化代理
