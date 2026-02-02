@@ -1,41 +1,62 @@
 import 'package:flutter/material.dart';
 import '../models/host.dart';
+import '../models/group.dart';
 import '../l10n/app_localizations.dart';
 import 'connected_shimmer.dart';
 
 /// 主机列表面板回调类型
 typedef HostCallback = void Function(Host host);
 typedef HostIdCallback = void Function(String hostId);
-typedef ContextMenuCallback = void Function(BuildContext context, Offset position, Host host, bool isConnected);
+typedef ContextMenuCallback = void Function(BuildContext context, Offset position, Host host, bool isConnected, List<HostGroup> groups);
+typedef GroupCallback = void Function(HostGroup group);
+typedef MoveHostCallback = void Function(Host host, String? groupId);
 
-/// 主机列表面板组件
-class HostListPanel extends StatelessWidget {
+/// 主机列表面板组件（支持分组和拖拽）
+class HostListPanel extends StatefulWidget {
   final List<Host> hosts;
+  final List<HostGroup> groups;
   final Host? selectedHost;
   final String? activeSessionId;
   final bool Function(String hostId) isHostConnected;
   final bool Function(String hostId) isHostConnecting;
   final VoidCallback onAddHost;
+  final VoidCallback onAddGroup;
   final HostCallback onConnect;
   final HostIdCallback onDisconnect;
   final HostIdCallback onSwitchSession;
   final HostCallback onSelectHost;
   final ContextMenuCallback onShowContextMenu;
+  final GroupCallback? onEditGroup;
+  final GroupCallback? onDeleteGroup;
+  final MoveHostCallback? onMoveHost;
 
   const HostListPanel({
     super.key,
     required this.hosts,
+    required this.groups,
     required this.selectedHost,
     required this.activeSessionId,
     required this.isHostConnected,
     required this.isHostConnecting,
     required this.onAddHost,
+    required this.onAddGroup,
     required this.onConnect,
     required this.onDisconnect,
     required this.onSwitchSession,
     required this.onSelectHost,
     required this.onShowContextMenu,
+    this.onEditGroup,
+    this.onDeleteGroup,
+    this.onMoveHost,
   });
+
+  @override
+  State<HostListPanel> createState() => _HostListPanelState();
+}
+
+class _HostListPanelState extends State<HostListPanel> {
+  final Set<String> _expandedGroups = {HostGroup.defaultGroupId};
+  String? _dragTargetGroupId;
 
   @override
   Widget build(BuildContext context) {
@@ -50,16 +71,16 @@ class HostListPanel extends StatelessWidget {
         children: [
           // 标题栏
           _buildHeader(l10n),
-          // 主机列表
+          // 主机列表（分组显示）
           Expanded(
             child: ClipRRect(
               borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(12),
                 bottomRight: Radius.circular(12),
               ),
-              child: hosts.isEmpty 
+              child: widget.hosts.isEmpty 
                   ? _buildEmptyState(l10n) 
-                  : _buildHostList(context, l10n),
+                  : _buildGroupedHostList(context, l10n),
             ),
           ),
         ],
@@ -81,9 +102,19 @@ class HostListPanel extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // 添加分组按钮
+          IconButton(
+            icon: const Icon(Icons.create_new_folder_outlined, size: 16),
+            onPressed: widget.onAddGroup,
+            tooltip: l10n.newGroup,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 8),
+          // 添加主机按钮
           IconButton(
             icon: const Icon(Icons.add, size: 18),
-            onPressed: onAddHost,
+            onPressed: widget.onAddHost,
             tooltip: l10n.addHostTooltip,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
@@ -114,33 +145,245 @@ class HostListPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildHostList(BuildContext context, AppLocalizations l10n) {
-    return ListView.builder(
-      itemCount: hosts.length,
-      itemBuilder: (context, index) {
-        final host = hosts[index];
-        final isSelected = selectedHost?.id == host.id;
-        final connected = isHostConnected(host.id);
-        final connecting = isHostConnecting(host.id);
-        final isActiveSession = activeSessionId == host.id;
+  Widget _buildGroupedHostList(BuildContext context, AppLocalizations l10n) {
+    // 构建分组映射
+    final Map<String, List<Host>> groupedHosts = {};
+    
+    // 初始化默认分组
+    groupedHosts[HostGroup.defaultGroupId] = [];
+    
+    // 初始化自定义分组
+    for (final group in widget.groups) {
+      groupedHosts[group.id] = [];
+    }
+    
+    // 将主机分配到各分组
+    for (final host in widget.hosts) {
+      final groupId = host.effectiveGroupId;
+      if (groupedHosts.containsKey(groupId)) {
+        groupedHosts[groupId]!.add(host);
+      } else {
+        // 分组不存在，放入默认分组
+        groupedHosts[HostGroup.defaultGroupId]!.add(host);
+      }
+    }
+    
+    // 构建分组列表（默认分组在前，其他按 order 排序）
+    final sortedGroups = <MapEntry<String, String>>[];
+    
+    // 添加默认分组
+    sortedGroups.add(MapEntry(HostGroup.defaultGroupId, l10n.defaultGroup));
+    
+    // 添加自定义分组（按 order 排序）
+    final customGroups = widget.groups.toList()..sort((a, b) => a.order.compareTo(b.order));
+    for (final group in customGroups) {
+      sortedGroups.add(MapEntry(group.id, group.name));
+    }
 
-        return GestureDetector(
-          onTap: () {
-            if (connected) {
-              onSwitchSession(host.id);
-            } else {
-              onSelectHost(host);
+    return ListView.builder(
+      itemCount: sortedGroups.length,
+      itemBuilder: (context, index) {
+        final groupEntry = sortedGroups[index];
+        final groupId = groupEntry.key;
+        final groupName = groupEntry.value;
+        final hosts = groupedHosts[groupId] ?? [];
+        final isExpanded = _expandedGroups.contains(groupId);
+        final isDefaultGroup = groupId == HostGroup.defaultGroupId;
+        final isDragTarget = _dragTargetGroupId == groupId;
+        
+        return DragTarget<Host>(
+          onWillAcceptWithDetails: (details) {
+            // 只有当主机不在当前分组时才接受
+            final host = details.data;
+            if (host.effectiveGroupId != groupId) {
+              setState(() => _dragTargetGroupId = groupId);
+              return true;
             }
+            return false;
           },
-          onSecondaryTapDown: (details) {
-            onShowContextMenu(context, details.globalPosition, host, connected);
+          onLeave: (_) {
+            setState(() => _dragTargetGroupId = null);
           },
-          child: connected
-              ? _buildConnectedHostItem(context, host, isSelected, connecting, isActiveSession, l10n)
-              : _buildDisconnectedHostItem(context, host, isSelected, connecting, l10n),
+          onAcceptWithDetails: (details) {
+            setState(() => _dragTargetGroupId = null);
+            final host = details.data;
+            widget.onMoveHost?.call(host, isDefaultGroup ? null : groupId);
+          },
+          builder: (context, candidateData, rejectedData) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 分组标题
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedGroups.remove(groupId);
+                      } else {
+                        _expandedGroups.add(groupId);
+                      }
+                    });
+                  },
+                  onSecondaryTapDown: isDefaultGroup ? null : (details) {
+                    _showGroupContextMenu(context, details.globalPosition, widget.groups.firstWhere((g) => g.id == groupId));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDragTarget ? const Color(0xFF007AFF).withValues(alpha: 0.3) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isExpanded ? Icons.expand_more : Icons.chevron_right,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          isDefaultGroup ? Icons.folder_special : Icons.folder,
+                          size: 16,
+                          color: isDragTarget ? const Color(0xFF007AFF) : Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            groupName,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: isDragTarget ? const Color(0xFF007AFF) : Colors.white70,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '(${hosts.length})',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // 分组内的主机
+                if (isExpanded)
+                  ...hosts.map((host) => _buildDraggableHostItem(context, host, l10n)),
+              ],
+            );
+          },
         );
       },
     );
+  }
+
+  void _showGroupContextMenu(BuildContext context, Offset position, HostGroup group) {
+    final l10n = AppLocalizations.of(context);
+    
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      color: const Color(0xFF404040),
+      items: [
+        PopupMenuItem(
+          child: Row(
+            children: [
+              const Icon(Icons.edit, size: 18, color: Colors.white70),
+              const SizedBox(width: 8),
+              Text(l10n.editGroup, style: const TextStyle(color: Colors.white)),
+            ],
+          ),
+          onTap: () => widget.onEditGroup?.call(group),
+        ),
+        PopupMenuItem(
+          child: Row(
+            children: [
+              const Icon(Icons.delete, size: 18, color: Colors.red),
+              const SizedBox(width: 8),
+              Text(l10n.deleteGroup, style: const TextStyle(color: Colors.red)),
+            ],
+          ),
+          onTap: () => widget.onDeleteGroup?.call(group),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDraggableHostItem(BuildContext context, Host host, AppLocalizations l10n) {
+    final isSelected = widget.selectedHost?.id == host.id;
+    final connected = widget.isHostConnected(host.id);
+    final connecting = widget.isHostConnecting(host.id);
+    final isActiveSession = widget.activeSessionId == host.id;
+
+    return Draggable<Host>(
+      data: host,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF007AFF),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.dns, size: 16, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                host.name,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.5,
+        child: _buildHostItemContent(context, host, isSelected, connected, connecting, isActiveSession, l10n),
+      ),
+      child: GestureDetector(
+        onTap: () {
+          if (connected) {
+            widget.onSwitchSession(host.id);
+          } else {
+            widget.onSelectHost(host);
+          }
+        },
+        onSecondaryTapDown: (details) {
+          widget.onShowContextMenu(context, details.globalPosition, host, connected, widget.groups);
+        },
+        child: Padding(
+          padding: const EdgeInsets.only(left: 24),
+          child: _buildHostItemContent(context, host, isSelected, connected, connecting, isActiveSession, l10n),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHostItemContent(
+    BuildContext context,
+    Host host,
+    bool isSelected,
+    bool connected,
+    bool isConnecting,
+    bool isActiveSession,
+    AppLocalizations l10n,
+  ) {
+    if (connected) {
+      return _buildConnectedHostItem(context, host, isSelected, isConnecting, isActiveSession, l10n);
+    } else {
+      return _buildDisconnectedHostItem(context, host, isSelected, isConnecting, l10n);
+    }
   }
 
   Widget _buildConnectedHostItem(
@@ -205,12 +448,12 @@ class HostListPanel extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       tooltip: l10n.disconnect,
-                      onPressed: () => onDisconnect(host.id),
+                      onPressed: () => widget.onDisconnect(host.id),
                     ),
                 ],
               ),
               onTap: () {
-                onSwitchSession(host.id);
+                widget.onSwitchSession(host.id);
               },
             ),
           ),
@@ -271,12 +514,12 @@ class HostListPanel extends StatelessWidget {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               tooltip: l10n.connect,
-              onPressed: () => onConnect(host),
+              onPressed: () => widget.onConnect(host),
             ),
           ],
         ),
         onTap: () {
-          onSelectHost(host);
+          widget.onSelectHost(host);
         },
       ),
     );

@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:xterm/xterm.dart';
 import 'package:file_picker/file_picker.dart';
 import 'models/host.dart';
+import 'models/group.dart';
 import 'models/session.dart';
 import 'models/transfer_task.dart';
 import 'services/storage_service.dart';
@@ -116,6 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
   
   List<Host> _hosts = [];
+  List<HostGroup> _groups = [];  // 分组列表
   Host? _selectedHost;
   
   // 多会话管理
@@ -227,7 +229,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadHosts() async {
     final hosts = await _storageService.getHosts();
-    setState(() => _hosts = hosts);
+    final groups = await _storageService.getGroups();
+    setState(() {
+      _hosts = hosts;
+      _groups = groups;
+    });
     // 加载持久化的传输任务
     await _loadTransferTasks();
   }
@@ -284,13 +290,17 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     
     try {
-      // 获取密码
-      String? password = await _storageService.getPassword(host.id);
-      if (password == null) {
-        _showPasswordDialog(host);
-        setState(() => session!.isConnecting = false);
-        return;
+      // 根据认证类型获取凭据
+      String? password;
+      if (host.authType == AuthType.password) {
+        password = await _storageService.getPassword(host.id);
+        if (password == null) {
+          _showPasswordDialog(host);
+          setState(() => session!.isConnecting = false);
+          return;
+        }
       }
+      // 密钥认证时 password 为 null，ssh_service 会使用 privateKeyContent
 
       // 使用终端的实际尺寸连接（如果可用）
       final termWidth = session.terminal.viewWidth;
@@ -334,7 +344,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // SSH 连接成功后，自动加载 SFTP 文件列表
       _loadFilesForSession(session, host, password);
     } catch (e) {
-      setState(() => session!.isConnecting = false);
+      // 认证失败，清理会话
+      _sessions.remove(host.id);
+      setState(() {
+        _activeSessionId = null;
+      });
       final l10n = AppLocalizations.of(context);
       _showError('${l10n.connectionFailed}: $e');
     }
@@ -426,8 +440,15 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _activeSession!.isLoadingFiles = true);
     
     try {
-      final password = await _storageService.getPassword(_selectedHost!.id);
-      if (password == null) return;
+      // 只有密码认证才需要获取密码
+      String? password;
+      if (_selectedHost!.authType == AuthType.password) {
+        password = await _storageService.getPassword(_selectedHost!.id);
+        if (password == null) {
+          setState(() => _activeSession!.isLoadingFiles = false);
+          return;
+        }
+      }
       
       final files = await _activeSession!.sftpService.listDirectory(_selectedHost!, password, path);
       // 排序：文件夹在前，然后按名称排序
@@ -451,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// SSH 连接后自动加载 SFTP 文件列表
-  Future<void> _loadFilesForSession(TerminalSession session, Host host, String password) async {
+  Future<void> _loadFilesForSession(TerminalSession session, Host host, String? password) async {
     setState(() => session.isLoadingFiles = true);
     
     try {
@@ -676,6 +697,72 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// 删除远程文件/文件夹
+  Future<void> _deleteRemoteFile(String path, bool isDirectory) async {
+    if (_selectedHost == null) return;
+    
+    final l10n = AppLocalizations.of(context);
+    String? password;
+    if (_selectedHost!.authType == AuthType.password) {
+      password = await _storageService.getPassword(_selectedHost!.id);
+    }
+    
+    try {
+      if (isDirectory) {
+        await _activeSession?.sftpService.deleteDirectory(_selectedHost!, password, path);
+      } else {
+        await _activeSession?.sftpService.deleteFile(_selectedHost!, password, path);
+      }
+      _loadFiles(_currentPath);
+      _showSuccess(l10n.fileDeleted);
+    } catch (e) {
+      _showError('${l10n.deleteFailed}: $e');
+    }
+  }
+
+  /// 创建远程文件夹
+  Future<void> _createRemoteFolder(String path) async {
+    if (_selectedHost == null) return;
+    
+    final l10n = AppLocalizations.of(context);
+    String? password;
+    if (_selectedHost!.authType == AuthType.password) {
+      password = await _storageService.getPassword(_selectedHost!.id);
+    }
+    
+    try {
+      await _activeSession?.sftpService.createDirectory(_selectedHost!, password, path);
+      _loadFiles(_currentPath);
+      _showSuccess(l10n.folderCreated);
+    } catch (e) {
+      _showError('${l10n.operationFailed}: $e');
+    }
+  }
+
+  /// 重命名远程文件/文件夹
+  Future<void> _renameRemoteFile(String oldPath, String newName) async {
+    if (_selectedHost == null) return;
+    
+    final l10n = AppLocalizations.of(context);
+    String? password;
+    if (_selectedHost!.authType == AuthType.password) {
+      password = await _storageService.getPassword(_selectedHost!.id);
+    }
+    
+    // 构建新路径
+    final parts = oldPath.split('/');
+    parts[parts.length - 1] = newName;
+    final newPath = parts.join('/');
+    
+    try {
+      await _activeSession?.sftpService.rename(_selectedHost!, password, oldPath, newPath);
+      _loadFiles(_currentPath);
+      _showSuccess(l10n.renamed);
+    } catch (e) {
+      _showError('${l10n.operationFailed}: $e');
+    }
+  }
+
   Future<void> _downloadFile(String fileName) async {
     if (_selectedHost == null) return;
     
@@ -892,13 +979,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 显示主机右键菜单
-  void _showHostContextMenu(BuildContext context, Offset position, Host host, bool isConnected) async {
+  void _showHostContextMenu(BuildContext context, Offset position, Host host, bool isConnected, List<HostGroup> groups) async {
+    final l10n = AppLocalizations.of(context);
+    
     final result = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
       color: const Color(0xFF2d2d2d),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      constraints: const BoxConstraints(minWidth: 100, maxWidth: 140),
+      constraints: const BoxConstraints(minWidth: 140, maxWidth: 200),
       items: [
         PopupMenuItem(
           value: 'edit',
@@ -909,10 +998,74 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Icon(Icons.edit, size: 14, color: Colors.white70),
               const SizedBox(width: 8),
-              Text(AppLocalizations.of(context).edit, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              Text(l10n.edit, style: const TextStyle(color: Colors.white, fontSize: 13)),
             ],
           ),
         ),
+        // 移动到分组
+        PopupMenuItem(
+          enabled: false,
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.drive_file_move_outline, size: 14, color: Colors.white70),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(l10n.moveTo, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ),
+              const Icon(Icons.arrow_right, size: 14, color: Colors.white70),
+            ],
+          ),
+        ),
+        // 默认分组选项
+        PopupMenuItem(
+          value: 'move_default',
+          height: 28,
+          padding: const EdgeInsets.only(left: 32, right: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.folder_special, size: 12, 
+                color: host.groupId == null ? const Color(0xFF007AFF) : Colors.white54),
+              const SizedBox(width: 6),
+              Text(l10n.defaultGroup, 
+                style: TextStyle(
+                  color: host.groupId == null ? const Color(0xFF007AFF) : Colors.white70, 
+                  fontSize: 12,
+                ),
+              ),
+              if (host.groupId == null) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.check, size: 12, color: Color(0xFF007AFF)),
+              ],
+            ],
+          ),
+        ),
+        // 自定义分组选项
+        ...groups.map((g) => PopupMenuItem(
+          value: 'move_${g.id}',
+          height: 28,
+          padding: const EdgeInsets.only(left: 32, right: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.folder, size: 12, 
+                color: host.groupId == g.id ? const Color(0xFF007AFF) : Colors.white54),
+              const SizedBox(width: 6),
+              Text(g.name, 
+                style: TextStyle(
+                  color: host.groupId == g.id ? const Color(0xFF007AFF) : Colors.white70, 
+                  fontSize: 12,
+                ),
+              ),
+              if (host.groupId == g.id) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.check, size: 12, color: Color(0xFF007AFF)),
+              ],
+            ],
+          ),
+        )),
         if (!isConnected)
           PopupMenuItem(
             value: 'delete',
@@ -923,7 +1076,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 const Icon(Icons.delete, size: 14, color: Colors.red),
                 const SizedBox(width: 8),
-                Text(AppLocalizations.of(context).delete, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                Text(l10n.delete, style: const TextStyle(color: Colors.red, fontSize: 13)),
               ],
             ),
           ),
@@ -934,6 +1087,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _showEditHostDialog(host);
     } else if (result == 'delete') {
       _confirmDeleteHost(host);
+    } else if (result == 'move_default') {
+      _moveHostToGroup(host, null);
+    } else if (result != null && result.startsWith('move_')) {
+      final groupId = result.substring(5);
+      _moveHostToGroup(host, groupId);
     }
   }
   
@@ -979,6 +1137,7 @@ class _HomeScreenState extends State<HomeScreen> {
       host: host,
       inputDecoration: _inputDecoration,
       onUpdate: _updateHost,
+      groups: _groups,
     );
   }
 
@@ -987,11 +1146,55 @@ class _HomeScreenState extends State<HomeScreen> {
     HostDialogs.showAddHostDialog(
       context: context,
       storageService: _storageService,
+      groups: _groups,
       inputDecoration: _inputDecoration,
       onHostAdded: _loadHosts,
     );
   }
-
+  
+  /// 显示新建分组对话框
+  void _showAddGroupDialog() async {
+    final group = await HostDialogs.showNewGroupDialog(
+      context: context,
+      inputDecoration: _inputDecoration,
+    );
+    if (group != null) {
+      await _storageService.addGroup(group);
+      await _loadHosts();
+    }
+  }
+  
+  /// 显示编辑分组对话框
+  void _showEditGroupDialog(HostGroup group) async {
+    final updatedGroup = await HostDialogs.showEditGroupDialog(
+      context: context,
+      group: group,
+      inputDecoration: _inputDecoration,
+    );
+    if (updatedGroup != null) {
+      await _storageService.updateGroup(updatedGroup);
+      await _loadHosts();
+    }
+  }
+  
+  /// 删除分组
+  void _deleteGroup(HostGroup group) async {
+    final confirmed = await HostDialogs.showDeleteGroupDialog(
+      context: context,
+      group: group,
+    );
+    if (confirmed) {
+      await _storageService.deleteGroup(group.id);
+      await _loadHosts();
+    }
+  }
+  
+  /// 移动主机到指定分组
+  void _moveHostToGroup(Host host, String? groupId) async {
+    final updatedHost = host.copyWith(groupId: groupId);
+    await _storageService.updateHost(updatedHost);
+    await _loadHosts();
+  }
 
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
@@ -1041,13 +1244,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _updateHost(Host host, String name, String hostname, int port, String username, String? password) async {
+  Future<void> _updateHost(Host host, String name, String hostname, int port, String username, String? password, AuthType authType, String? privateKeyContent, String? groupId) async {
     final updatedHost = Host(
       id: host.id,
       name: name,
       hostname: hostname,
       port: port,
       username: username,
+      authType: authType,
+      privateKeyContent: privateKeyContent,
+      groupId: groupId,
     );
     await _storageService.updateHost(updatedHost);
     if (password != null && password.isNotEmpty) {
@@ -1169,16 +1375,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         flex: 1,
                         child: HostListPanel(
                           hosts: _hosts,
+                          groups: _groups,
                           selectedHost: _selectedHost,
                           activeSessionId: _activeSessionId,
                           isHostConnected: _isHostConnected,
                           isHostConnecting: _isHostConnecting,
                           onAddHost: _showAddHostDialog,
+                          onAddGroup: _showAddGroupDialog,
                           onConnect: _connectToHost,
                           onDisconnect: _disconnectHost,
                           onSwitchSession: _switchToSession,
                           onSelectHost: (host) => setState(() => _selectedHost = host),
                           onShowContextMenu: _showHostContextMenu,
+                          onEditGroup: _showEditGroupDialog,
+                          onDeleteGroup: _deleteGroup,
+                          onMoveHost: _moveHostToGroup,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -1194,6 +1405,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           onUpload: _uploadFile,
                           onDownload: _downloadFile,
                           onFilesDropped: _uploadDroppedFiles,
+                          onDelete: _deleteRemoteFile,
+                          onCreateFolder: _createRemoteFolder,
+                          onRename: _renameRemoteFile,
                         ),
                       ),
                     ],

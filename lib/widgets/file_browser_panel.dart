@@ -7,6 +7,9 @@ import '../l10n/app_localizations.dart';
 typedef FileLoadCallback = void Function(String path);
 typedef FileDownloadCallback = void Function(String fileName);
 typedef FileDropCallback = void Function(List<String> paths);
+typedef FileDeleteCallback = void Function(String path, bool isDirectory);
+typedef FolderCreateCallback = void Function(String path);
+typedef FileRenameCallback = void Function(String oldPath, String newName);
 
 /// 文件浏览器面板组件
 class FileBrowserPanel extends StatefulWidget {
@@ -18,6 +21,9 @@ class FileBrowserPanel extends StatefulWidget {
   final VoidCallback onUpload;
   final FileDownloadCallback onDownload;
   final FileDropCallback? onFilesDropped;
+  final FileDeleteCallback? onDelete;
+  final FolderCreateCallback? onCreateFolder;
+  final FileRenameCallback? onRename;
 
   const FileBrowserPanel({
     super.key,
@@ -29,11 +35,15 @@ class FileBrowserPanel extends StatefulWidget {
     required this.onUpload,
     required this.onDownload,
     this.onFilesDropped,
+    this.onDelete,
+    this.onCreateFolder,
+    this.onRename,
   });
 
   @override
   State<FileBrowserPanel> createState() => _FileBrowserPanelState();
 }
+
 
 class _FileBrowserPanelState extends State<FileBrowserPanel> {
   bool _isDragging = false;
@@ -117,6 +127,16 @@ class _FileBrowserPanelState extends State<FileBrowserPanel> {
             ),
           ),
           const Spacer(),
+          if (widget.isConnected && widget.onCreateFolder != null)
+            IconButton(
+              icon: const Icon(Icons.create_new_folder_outlined, size: 16),
+              color: Colors.white70,
+              onPressed: () => _showNewFolderDialog(context, l10n),
+              tooltip: l10n.newFolder,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          if (widget.isConnected) const SizedBox(width: 8),
           if (widget.isConnected)
             IconButton(
               icon: const Icon(Icons.upload, size: 16),
@@ -136,6 +156,42 @@ class _FileBrowserPanelState extends State<FileBrowserPanel> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示新建文件夹对话框
+  void _showNewFolderDialog(BuildContext context, AppLocalizations l10n) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        title: Text(l10n.newFolder),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: l10n.folderName,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (controller.text.isNotEmpty) {
+                final newPath = '${widget.currentPath}/${controller.text}';
+                widget.onCreateFolder?.call(newPath);
+              }
+            },
+            child: Text(l10n.confirm),
+          ),
         ],
       ),
     );
@@ -216,34 +272,153 @@ class _FileBrowserPanelState extends State<FileBrowserPanel> {
         final file = widget.files[index];
         if (file.name.startsWith('.')) return const SizedBox.shrink();
         
-        return ListTile(
-          dense: true,
-          visualDensity: VisualDensity.compact,
-          leading: Icon(
-            file.isDirectory ? Icons.folder : Icons.insert_drive_file_outlined,
-            color: file.isDirectory ? const Color(0xFF007AFF) : Colors.grey,
-            size: 18,
+        final filePath = '${widget.currentPath}/${file.name}';
+        
+        return GestureDetector(
+          onSecondaryTapDown: (details) {
+            _showFileContextMenu(context, l10n, file, filePath, details.globalPosition);
+          },
+          child: ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            leading: Icon(
+              file.isDirectory ? Icons.folder : Icons.insert_drive_file_outlined,
+              color: file.isDirectory ? const Color(0xFF007AFF) : Colors.grey,
+              size: 18,
+            ),
+            title: Text(
+              file.name,
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: file.isDirectory
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.download, size: 16),
+                    color: Colors.white70,
+                    onPressed: () => widget.onDownload(file.name),
+                    tooltip: l10n.download,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+            onTap: file.isDirectory
+                ? () => widget.onLoadFiles(filePath)
+                : null,
           ),
-          title: Text(
-            file.name,
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: file.isDirectory
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.download, size: 16),
-                  color: Colors.white70,
-                  onPressed: () => widget.onDownload(file.name),
-                  tooltip: l10n.download,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-          onTap: file.isDirectory
-              ? () => widget.onLoadFiles('${widget.currentPath}/${file.name}')
-              : null,
         );
       },
+    );
+  }
+
+  /// 显示文件右键菜单
+  void _showFileContextMenu(BuildContext context, AppLocalizations l10n, SftpFileInfo file, String filePath, Offset position) async {
+    final result = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      color: const Color(0xFF3d3d3d),
+      items: [
+        if (widget.onRename != null)
+          PopupMenuItem(
+            value: 'rename',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.edit_outlined, size: 14, color: Colors.white70),
+                const SizedBox(width: 8),
+                Text(l10n.rename, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ],
+            ),
+          ),
+        if (widget.onDelete != null)
+          PopupMenuItem(
+            value: 'delete',
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.delete_outline, size: 14, color: Color(0xFFff453a)),
+                const SizedBox(width: 8),
+                Text(l10n.deleteFile, style: const TextStyle(color: Color(0xFFff453a), fontSize: 13)),
+              ],
+            ),
+          ),
+      ],
+    );
+
+    if (!context.mounted) return;
+    
+    if (result == 'rename') {
+      _showRenameDialog(context, l10n, file, filePath);
+    } else if (result == 'delete') {
+      _confirmDelete(context, l10n, file, filePath);
+    }
+  }
+
+  /// 显示重命名对话框
+  void _showRenameDialog(BuildContext context, AppLocalizations l10n, SftpFileInfo file, String filePath) {
+    final controller = TextEditingController(text: file.name);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        title: Text(l10n.rename),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: file.name,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (controller.text.isNotEmpty && controller.text != file.name) {
+                widget.onRename?.call(filePath, controller.text);
+              }
+            },
+            child: Text(l10n.confirm),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 确认删除对话框
+  void _confirmDelete(BuildContext context, AppLocalizations l10n, SftpFileInfo file, String filePath) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2d2d2d),
+        title: Text(l10n.deleteFile, style: const TextStyle(color: Colors.white)),
+        content: Text(
+          file.isDirectory ? l10n.deleteFolderConfirm : l10n.deleteFileConfirm,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel, style: const TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFff453a),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onDelete?.call(filePath, file.isDirectory);
+            },
+            child: Text(l10n.deleteFile),
+          ),
+        ],
+      ),
     );
   }
 }

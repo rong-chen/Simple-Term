@@ -1,11 +1,75 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/host.dart';
+import '../models/group.dart';
 
-/// 存储服务 - 管理主机配置和密码
+/// 存储服务 - 管理主机配置、分组和密码
 class StorageService {
   static const String _hostsKey = 'simple_term_hosts';
   static const String _passwordsKey = 'simple_term_passwords';
+  static const String _groupsKey = 'simple_term_groups';
+
+  // ========== 分组管理 ==========
+
+  /// 获取所有分组
+  Future<List<HostGroup>> getGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    final groupsJson = prefs.getString(_groupsKey);
+    if (groupsJson == null) return [];
+
+    final List<dynamic> groupsList = jsonDecode(groupsJson);
+    return groupsList.map((json) => HostGroup.fromJson(json)).toList();
+  }
+
+  /// 保存所有分组
+  Future<void> saveGroups(List<HostGroup> groups) async {
+    final prefs = await SharedPreferences.getInstance();
+    final groupsJson = jsonEncode(groups.map((g) => g.toJson()).toList());
+    await prefs.setString(_groupsKey, groupsJson);
+  }
+
+  /// 添加分组
+  Future<void> addGroup(HostGroup group) async {
+    final groups = await getGroups();
+    groups.add(group);
+    await saveGroups(groups);
+  }
+
+  /// 更新分组
+  Future<void> updateGroup(HostGroup group) async {
+    final groups = await getGroups();
+    final index = groups.indexWhere((g) => g.id == group.id);
+    if (index != -1) {
+      groups[index] = group;
+      await saveGroups(groups);
+    }
+  }
+
+  /// 删除分组（将分组内的主机移到默认分组）
+  Future<void> deleteGroup(String groupId) async {
+    // 不能删除默认分组
+    if (groupId == HostGroup.defaultGroupId) return;
+    
+    // 删除分组
+    final groups = await getGroups();
+    groups.removeWhere((g) => g.id == groupId);
+    await saveGroups(groups);
+    
+    // 将该分组的主机移到默认分组
+    final hosts = await getHosts();
+    bool updated = false;
+    for (int i = 0; i < hosts.length; i++) {
+      if (hosts[i].groupId == groupId) {
+        hosts[i] = hosts[i].copyWith(groupId: null);
+        updated = true;
+      }
+    }
+    if (updated) {
+      await saveHosts(hosts);
+    }
+  }
+
+  // ========== 主机管理 ==========
 
   /// 获取所有主机
   Future<List<Host>> getHosts() async {
@@ -24,10 +88,28 @@ class StorageService {
     await prefs.setString(_hostsKey, hostsJson);
   }
 
-  /// 添加主机
+  /// 添加主机（如果存在相同 hostname+port+username 的主机则覆盖）
   Future<void> addHost(Host host) async {
     final hosts = await getHosts();
-    hosts.add(host);
+    
+    // 检查是否存在相同的主机（hostname + port + username）
+    final existingIndex = hosts.indexWhere((h) => 
+      h.hostname == host.hostname && 
+      h.port == host.port && 
+      h.username == host.username &&
+      h.id != host.id
+    );
+    
+    if (existingIndex != -1) {
+      // 覆盖已存在的主机，保留旧的 ID
+      final oldHost = hosts[existingIndex];
+      hosts[existingIndex] = host.copyWith(id: oldHost.id);
+      // 如果有密码，也需要更新
+      await deletePassword(oldHost.id);
+    } else {
+      hosts.add(host);
+    }
+    
     await saveHosts(hosts);
   }
 
@@ -48,6 +130,8 @@ class StorageService {
     await saveHosts(hosts);
     await deletePassword(hostId);
   }
+
+  // ========== 密码管理 ==========
 
   /// 保存密码（Base64 编码存储）
   Future<void> savePassword(String hostId, String password) async {
@@ -93,11 +177,12 @@ class StorageService {
     return map.map((k, v) => MapEntry(k, v.toString()));
   }
   
-  /// 清除所有数据（主机和密码）
+  /// 清除所有数据（主机、分组和密码）
   Future<void> clearAllData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_hostsKey);
     await prefs.remove(_passwordsKey);
+    await prefs.remove(_groupsKey);
   }
   
   /// 保存语言偏好

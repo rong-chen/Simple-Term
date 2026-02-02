@@ -142,6 +142,46 @@ class AppLocalizations {
   String get cancelTransfer => isZh ? StringsZh.cancelTransfer : StringsEn.cancelTransfer;
   String get deleteWithFile => isZh ? StringsZh.deleteWithFile : StringsEn.deleteWithFile;
   String get resumeTransfer => isZh ? StringsZh.resumeTransfer : StringsEn.resumeTransfer;
+  
+  // 终端操作
+  String get copy => isZh ? StringsZh.copy : StringsEn.copy;
+  String get paste => isZh ? StringsZh.paste : StringsEn.paste;
+  String get selectAll => isZh ? StringsZh.selectAll : StringsEn.selectAll;
+  String get clearScreen => isZh ? StringsZh.clearScreen : StringsEn.clearScreen;
+  
+  // SSH 认证
+  String get authType => isZh ? StringsZh.authType : StringsEn.authType;
+  String get passwordAuth => isZh ? StringsZh.passwordAuth : StringsEn.passwordAuth;
+  String get privateKeyAuth => isZh ? StringsZh.privateKeyAuth : StringsEn.privateKeyAuth;
+  String get privateKeyPath => isZh ? StringsZh.privateKeyPath : StringsEn.privateKeyPath;
+  String get selectPrivateKey => isZh ? StringsZh.selectPrivateKey : StringsEn.selectPrivateKey;
+  String get passphrase => isZh ? StringsZh.passphrase : StringsEn.passphrase;
+  String get passphraseHint => isZh ? StringsZh.passphraseHint : StringsEn.passphraseHint;
+  String get keyFileNotFound => isZh ? StringsZh.keyFileNotFound : StringsEn.keyFileNotFound;
+  
+  // 分组
+  String get defaultGroup => isZh ? StringsZh.defaultGroup : StringsEn.defaultGroup;
+  String get newGroup => isZh ? StringsZh.newGroup : StringsEn.newGroup;
+  String get groupName => isZh ? StringsZh.groupName : StringsEn.groupName;
+  String get editGroup => isZh ? StringsZh.editGroup : StringsEn.editGroup;
+  String get deleteGroup => isZh ? StringsZh.deleteGroup : StringsEn.deleteGroup;
+  String get deleteGroupConfirm => isZh ? StringsZh.deleteGroupConfirm : StringsEn.deleteGroupConfirm;
+  String get group => isZh ? StringsZh.group : StringsEn.group;
+  String get noGroup => isZh ? StringsZh.noGroup : StringsEn.noGroup;
+  String get moveTo => isZh ? StringsZh.moveTo : StringsEn.moveTo;
+  
+  // 文件操作
+  String get deleteFile => isZh ? StringsZh.deleteFile : StringsEn.deleteFile;
+  String get deleteFileConfirm => isZh ? StringsZh.deleteFileConfirm : StringsEn.deleteFileConfirm;
+  String get deleteFolderConfirm => isZh ? StringsZh.deleteFolderConfirm : StringsEn.deleteFolderConfirm;
+  String get newFolder => isZh ? StringsZh.newFolder : StringsEn.newFolder;
+  String get folderName => isZh ? StringsZh.folderName : StringsEn.folderName;
+  String get rename => isZh ? StringsZh.rename : StringsEn.rename;
+  String get fileDeleted => isZh ? StringsZh.fileDeleted : StringsEn.fileDeleted;
+  String get folderCreated => isZh ? StringsZh.folderCreated : StringsEn.folderCreated;
+  String get renamed => isZh ? StringsZh.renamed : StringsEn.renamed;
+  String get deleteFailed => isZh ? StringsZh.deleteFailed : StringsEn.deleteFailed;
+  String get operationFailed => isZh ? StringsZh.operationFailed : StringsEn.operationFailed;
 }
 
 /// 本地化代理

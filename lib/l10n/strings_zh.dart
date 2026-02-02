@@ -106,4 +106,44 @@ class StringsZh {
   static const String cancelTransfer = '取消';
   static const String deleteWithFile = '删除';
   static const String resumeTransfer = '继续';
+  
+  // 终端操作
+  static const String copy = '复制';
+  static const String paste = '粘贴';
+  static const String selectAll = '全选';
+  static const String clearScreen = '清屏';
+  
+  // SSH 认证
+  static const String authType = '认证方式';
+  static const String passwordAuth = '密码';
+  static const String privateKeyAuth = '密钥';
+  static const String privateKeyPath = '私钥文件';
+  static const String selectPrivateKey = '选择私钥';
+  static const String passphrase = '私钥密码';
+  static const String passphraseHint = '如无密码可留空';
+  static const String keyFileNotFound = '私钥文件不存在';
+  
+  // 分组
+  static const String defaultGroup = '默认分组';
+  static const String newGroup = '新建分组';
+  static const String groupName = '分组名称';
+  static const String editGroup = '编辑分组';
+  static const String deleteGroup = '删除分组';
+  static const String deleteGroupConfirm = '删除分组后，其中的主机将移入默认分组';
+  static const String group = '分组';
+  static const String noGroup = '无分组';
+  static const String moveTo = '移动到';
+  
+  // 文件操作
+  static const String deleteFile = '删除';
+  static const String deleteFileConfirm = '确定要删除此文件吗？';
+  static const String deleteFolderConfirm = '确定要删除此文件夹及其所有内容吗？';
+  static const String newFolder = '新建文件夹';
+  static const String folderName = '文件夹名称';
+  static const String fileDeleted = '文件已删除';
+  static const String folderCreated = '文件夹已创建';
+  static const String renamed = '重命名成功';
+  static const String deleteFailed = '删除失败';
+  static const String operationFailed = '操作失败';
+  static const String rename = '重命名';
 }

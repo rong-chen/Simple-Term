@@ -10,6 +10,9 @@ typedef HostUpdateCallback = void Function(
   int port,
   String username,
   String? password,
+  AuthType authType,
+  String? privateKeyContent,
+  String? groupId,
 );
 
 /// 主机删除回调
@@ -137,6 +140,9 @@ class HostDetailPanel extends StatelessWidget {
                         int.tryParse(portController.text) ?? 22,
                         usernameController.text,
                         passwordController.text.isEmpty ? null : passwordController.text,
+                        currentHost.authType,
+                        currentHost.privateKeyContent,
+                        currentHost.groupId,
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF007AFF),

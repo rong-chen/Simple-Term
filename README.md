@@ -6,13 +6,15 @@
 
 ## English
 
-A simple and elegant macOS SSH terminal client.
+A simple and elegant cross-platform SSH terminal client for macOS and Windows.
 
 ### ✨ Features
 
-- **SSH Terminal** - Connect to remote servers with password authentication
-- **SFTP File Manager** - Built-in file browser for easy uploads and downloads
-- **Host Management** - Save frequently used hosts for one-click connection
+- **SSH Terminal** - Connect to remote servers with password or SSH key authentication
+- **SSH Key Authentication** - Support RSA/Ed25519 private keys with direct PEM input
+- **SFTP File Manager** - Built-in file browser with upload, download, delete, rename, and create folder
+- **Host Management** - Save frequently used hosts with group organization
+- **Host Grouping** - Organize hosts into custom groups with drag-and-drop support
 - **Multi-Session Support** - Connect to multiple servers simultaneously
 - **Internationalization** - English and Chinese language support
 - **Smart Disconnect** - Auto-disconnect after 5 minutes of inactivity
@@ -23,9 +25,9 @@ A simple and elegant macOS SSH terminal client.
 
 ###  Installation
 
-Download the DMG file and drag it to the Applications folder.
+Download the DMG file (macOS) or installer (Windows) and install.
 
-> ⚠️ **Important**: If you plan to switch products , please use **Data** → **Clear Data** to clear all saved hosts and passwords first.
+> ⚠️ **Important**: If you plan to switch products, please use **Data** → **Clear Data** to clear all saved hosts and passwords first.
 
 ### 📸 Screenshot
 
@@ -51,13 +53,15 @@ Updates are released periodically.
 
 ## 中文
 
-一款简洁优雅的 macOS SSH 终端客户端。
+一款简洁优雅的跨平台 SSH 终端客户端，支持 macOS 和 Windows。
 
 ### ✨ 功能特性
 
-- **SSH 终端连接** - 快速连接远程服务器，支持密码认证
-- **SFTP 文件管理** - 内置文件浏览器，轻松上传下载文件
-- **主机管理** - 保存常用主机，一键连接
+- **SSH 终端连接** - 快速连接远程服务器，支持密码和 SSH 密钥认证
+- **SSH 密钥认证** - 支持 RSA/Ed25519 私钥，可直接粘贴 PEM 内容
+- **SFTP 文件管理** - 内置文件浏览器，支持上传、下载、删除、重命名、新建文件夹
+- **主机管理** - 保存常用主机，支持分组管理
+- **主机分组** - 自定义分组，支持拖拽移动主机
 - **多会话支持** - 同时连接多个服务器
 - **国际化** - 支持中英文切换
 - **智能断线** - 5 分钟无操作自动断开，保持连接心跳
@@ -68,7 +72,7 @@ Updates are released periodically.
 
 ### 📦 安装
 
-下载 DMG 文件，拖动到 Applications 文件夹即可。
+下载 DMG 文件（macOS）或安装程序（Windows），安装即可。
 
 > ⚠️ **重要**: 如果您打算更换产品，请先使用 **Data** → **Clear Data** 清除所有保存的主机和密码。
 
@@ -97,3 +101,4 @@ Updates are released periodically.
 ---
 
 Made with ❤️
+

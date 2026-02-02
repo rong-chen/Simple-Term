@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
@@ -21,6 +22,7 @@ class TerminalPanel extends StatelessWidget {
   final Function(String) onSearch;
   final VoidCallback onNextMatch;
   final VoidCallback onPrevMatch;
+  final Function(String)? onPaste;
 
   const TerminalPanel({
     super.key,
@@ -39,7 +41,151 @@ class TerminalPanel extends StatelessWidget {
     required this.onSearch,
     required this.onNextMatch,
     required this.onPrevMatch,
+    this.onPaste,
   });
+
+  /// 检查是否按下了修饰键 (macOS: Cmd, Windows/Linux: Ctrl)
+  bool _isModifierPressed() {
+    if (Platform.isMacOS) {
+      return HardwareKeyboard.instance.isMetaPressed;
+    } else {
+      return HardwareKeyboard.instance.isControlPressed;
+    }
+  }
+
+  /// 复制选中的文本到剪贴板
+  Future<void> _copySelection() async {
+    final selection = terminalController.selection;
+    if (selection != null && activeTerminal != null) {
+      final text = activeTerminal!.buffer.getText(selection);
+      if (text.isNotEmpty) {
+        await Clipboard.setData(ClipboardData(text: text));
+      }
+    }
+  }
+
+  /// 粘贴剪贴板内容到终端
+  Future<void> _pasteClipboard() async {
+    final data = await Clipboard.getData('text/plain');
+    if (data?.text != null && data!.text!.isNotEmpty) {
+      if (onPaste != null) {
+        onPaste!(data.text!);
+      } else {
+        // 默认行为：直接写入终端
+        activeTerminal?.textInput(data.text!);
+      }
+    }
+  }
+
+  /// 全选终端内容
+  void _selectAll() {
+    if (activeTerminal != null) {
+      final buffer = activeTerminal!.buffer;
+      final start = buffer.createAnchor(0, 0);
+      final end = buffer.createAnchor(buffer.viewWidth, buffer.lines.length - 1);
+      terminalController.setSelection(start, end);
+    }
+  }
+
+  /// 清屏
+  void _clearScreen() {
+    activeTerminal?.textInput('\x0c'); // Ctrl+L
+  }
+
+  /// 显示右键上下文菜单
+  void _showContextMenu(BuildContext context, Offset position) {
+    final l10n = AppLocalizations.of(context);
+    final hasSelection = terminalController.selection != null;
+    final modifierKey = Platform.isMacOS ? '⌘' : 'Ctrl+';
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      color: const Color(0xFF2d2d2d),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      items: [
+        PopupMenuItem<String>(
+          value: 'copy',
+          enabled: hasSelection,
+          child: _buildMenuItem(
+            l10n.copy,
+            '${modifierKey}C',
+            Icons.copy,
+            enabled: hasSelection,
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'paste',
+          child: _buildMenuItem(
+            l10n.paste,
+            '${modifierKey}V',
+            Icons.paste,
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'selectAll',
+          child: _buildMenuItem(
+            l10n.selectAll,
+            '${modifierKey}A',
+            Icons.select_all,
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'clear',
+          child: _buildMenuItem(
+            l10n.clearScreen,
+            '${modifierKey}K',
+            Icons.clear_all,
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'copy':
+          _copySelection();
+          break;
+        case 'paste':
+          _pasteClipboard();
+          break;
+        case 'selectAll':
+          _selectAll();
+          break;
+        case 'clear':
+          _clearScreen();
+          break;
+      }
+    });
+  }
+
+  /// 构建菜单项
+  Widget _buildMenuItem(String label, String shortcut, IconData icon, {bool enabled = true}) {
+    final color = enabled ? Colors.white : Colors.grey;
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(color: color, fontSize: 13),
+          ),
+        ),
+        Text(
+          shortcut,
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,63 +236,99 @@ class TerminalPanel extends StatelessWidget {
               child: isConnected
                   ? Focus(
                       onKeyEvent: (node, event) {
+                        // 搜索: Cmd/Ctrl+F
                         if (event is KeyDownEvent &&
                             event.logicalKey == LogicalKeyboardKey.keyF &&
-                            HardwareKeyboard.instance.isMetaPressed) {
+                            _isModifierPressed()) {
                           onToggleSearch();
                           return KeyEventResult.handled;
                         }
+                        // 关闭搜索: Escape
                         if (event is KeyDownEvent &&
                             event.logicalKey == LogicalKeyboardKey.escape &&
                             isSearching) {
                           onCloseSearch();
                           return KeyEventResult.handled;
                         }
+                        // 复制: Cmd/Ctrl+C (仅当有选中内容时)
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.keyC &&
+                            _isModifierPressed() &&
+                            terminalController.selection != null) {
+                          _copySelection();
+                          return KeyEventResult.handled;
+                        }
+                        // 粘贴: Cmd/Ctrl+V
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.keyV &&
+                            _isModifierPressed()) {
+                          _pasteClipboard();
+                          return KeyEventResult.handled;
+                        }
+                        // 全选: Cmd/Ctrl+A
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.keyA &&
+                            _isModifierPressed()) {
+                          _selectAll();
+                          return KeyEventResult.handled;
+                        }
+                        // 清屏: Cmd/Ctrl+K
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.keyK &&
+                            _isModifierPressed()) {
+                          _clearScreen();
+                          return KeyEventResult.handled;
+                        }
                         return KeyEventResult.ignored;
                       },
                       child: Stack(
                         children: [
-                          ScrollConfiguration(
-                            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                            child: activeTerminal != null
-                                ? TerminalView(
-                                    activeTerminal!,
-                                    controller: terminalController,
-                                    scrollController: terminalScrollController,
-                                    autofocus: true,
-                                    alwaysShowCursor: true,
-                                    hardwareKeyboardOnly: true,
-                                    theme: const TerminalTheme(
-                                      cursor: Color(0xFFFFFFFF),
-                                      selection: Color(0x80FFFFFF),
-                                      foreground: Color(0xFFFFFFFF),
-                                      background: Color(0xFF0d0d0d),
-                                      black: Color(0xFF000000),
-                                      white: Color(0xFFFFFFFF),
-                                      red: Color(0xFFFF5555),
-                                      green: Color(0xFF50FA7B),
-                                      yellow: Color(0xFFF1FA8C),
-                                      blue: Color(0xFF6272A4),
-                                      magenta: Color(0xFFFF79C6),
-                                      cyan: Color(0xFF8BE9FD),
-                                      brightBlack: Color(0xFF6272A4),
-                                      brightWhite: Color(0xFFFFFFFF),
-                                      brightRed: Color(0xFFFF6E6E),
-                                      brightGreen: Color(0xFF69FF94),
-                                      brightYellow: Color(0xFFFFFFA5),
-                                      brightBlue: Color(0xFFD6ACFF),
-                                      brightMagenta: Color(0xFFFF92DF),
-                                      brightCyan: Color(0xFFA4FFFF),
-                                      searchHitBackground: Color(0xFFFFFF00),
-                                      searchHitBackgroundCurrent: Color(0xFFFF6600),
-                                      searchHitForeground: Color(0xFF000000),
-                                    ),
-                                    textStyle: const TerminalStyle(
-                                      fontSize: 14,
-                                      fontFamily: 'Menlo',
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
+                          GestureDetector(
+                            onSecondaryTapDown: (details) {
+                              _showContextMenu(context, details.globalPosition);
+                            },
+                            child: ScrollConfiguration(
+                              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                              child: activeTerminal != null
+                                  ? TerminalView(
+                                      activeTerminal!,
+                                      controller: terminalController,
+                                      scrollController: terminalScrollController,
+                                      autofocus: true,
+                                      alwaysShowCursor: true,
+                                      hardwareKeyboardOnly: true,
+                                      theme: const TerminalTheme(
+                                        cursor: Color(0xFFFFFFFF),
+                                        selection: Color(0x80FFFFFF),
+                                        foreground: Color(0xFFFFFFFF),
+                                        background: Color(0xFF0d0d0d),
+                                        black: Color(0xFF000000),
+                                        white: Color(0xFFFFFFFF),
+                                        red: Color(0xFFFF5555),
+                                        green: Color(0xFF50FA7B),
+                                        yellow: Color(0xFFF1FA8C),
+                                        blue: Color(0xFF6272A4),
+                                        magenta: Color(0xFFFF79C6),
+                                        cyan: Color(0xFF8BE9FD),
+                                        brightBlack: Color(0xFF6272A4),
+                                        brightWhite: Color(0xFFFFFFFF),
+                                        brightRed: Color(0xFFFF6E6E),
+                                        brightGreen: Color(0xFF69FF94),
+                                        brightYellow: Color(0xFFFFFFA5),
+                                        brightBlue: Color(0xFFD6ACFF),
+                                        brightMagenta: Color(0xFFFF92DF),
+                                        brightCyan: Color(0xFFA4FFFF),
+                                        searchHitBackground: Color(0xFFFFFF00),
+                                        searchHitBackgroundCurrent: Color(0xFFFF6600),
+                                        searchHitForeground: Color(0xFF000000),
+                                      ),
+                                      textStyle: const TerminalStyle(
+                                        fontSize: 14,
+                                        fontFamily: 'Menlo',
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
                           ),
                           // 搜索框
                           if (isSearching)

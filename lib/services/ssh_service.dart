@@ -37,16 +37,52 @@ class SSHService {
     _idleTimer = null;
   }
 
+  /// 获取私钥内容（优先使用 privateKeyContent，否则从文件读取）
+  Future<String?> _getKeyContent(Host host) async {
+    // 优先使用直接输入的密钥内容
+    if (host.privateKeyContent != null && host.privateKeyContent!.isNotEmpty) {
+      return host.privateKeyContent;
+    }
+    // 否则从文件读取
+    if (host.privateKeyPath != null && host.privateKeyPath!.isNotEmpty) {
+      final keyFile = File(host.privateKeyPath!);
+      if (await keyFile.exists()) {
+        return await keyFile.readAsString();
+      }
+    }
+    return null;
+  }
+
   /// 连接到 SSH 服务器
-  Future<void> connect(Host host, String password, {int width = 200, int height = 50}) async {
+  /// [password] - 密码（密码认证）或私钥密码（密钥认证）
+  Future<void> connect(Host host, String? password, {int width = 200, int height = 50}) async {
     final socket = await SSHSocket.connect(host.hostname, host.port);
     
-    _client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-      keepAliveInterval: const Duration(seconds: 30),  // 每30秒发送心跳包
-    );
+    if (host.authType == AuthType.privateKey) {
+      // 密钥认证
+      var keyContent = await _getKeyContent(host);
+      if (keyContent == null) {
+        throw Exception('Private key not found');
+      }
+      // 标准化换行符（兼容 Windows/Mac/Linux 的 PEM 文件）
+      keyContent = keyContent.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+      final keypairs = SSHKeyPair.fromPem(keyContent, password);
+      
+      _client = SSHClient(
+        socket,
+        username: host.username,
+        identities: [...keypairs],
+        keepAliveInterval: const Duration(seconds: 30),
+      );
+    } else {
+      // 密码认证
+      _client = SSHClient(
+        socket,
+        username: host.username,
+        onPasswordRequest: () => password ?? '',
+        keepAliveInterval: const Duration(seconds: 30),
+      );
+    }
     
     // 启动空闲计时器
     resetIdleTimer();
@@ -96,14 +132,27 @@ class SSHService {
     _client = null;
   }
 
-  /// 列出远程目录
-  Future<List<SftpFileInfo>> listDirectory(Host host, String password, String path) async {
+  /// 创建 SSH 客户端（用于 SFTP 操作）
+  Future<SSHClient> _createClient(Host host, String? password) async {
     final socket = await SSHSocket.connect(host.hostname, host.port);
-    final client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-    );
+    
+    if (host.authType == AuthType.privateKey) {
+      var keyContent = await _getKeyContent(host);
+      if (keyContent == null) {
+        throw Exception('Private key not found');
+      }
+      // 标准化换行符（兼容 Windows/Mac/Linux 的 PEM 文件）
+      keyContent = keyContent.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+      final keypairs = SSHKeyPair.fromPem(keyContent, password);
+      return SSHClient(socket, username: host.username, identities: [...keypairs]);
+    } else {
+      return SSHClient(socket, username: host.username, onPasswordRequest: () => password ?? '');
+    }
+  }
+
+  /// 列出远程目录
+  Future<List<SftpFileInfo>> listDirectory(Host host, String? password, String path) async {
+    final client = await _createClient(host, password);
     
     try {
       final sftp = await client.sftp();
@@ -127,13 +176,8 @@ class SSHService {
   }
 
   /// 上传文件（带进度）
-  Future<void> uploadFile(Host host, String password, String localPath, String remotePath, {void Function(double)? onProgress}) async {
-    final socket = await SSHSocket.connect(host.hostname, host.port);
-    final client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-    );
+  Future<void> uploadFile(Host host, String? password, String localPath, String remotePath, {void Function(double)? onProgress}) async {
+    final client = await _createClient(host, password);
     
     try {
       final sftp = await client.sftp();
@@ -156,13 +200,8 @@ class SSHService {
   }
 
   /// 下载文件（带进度）
-  Future<void> downloadFile(Host host, String password, String remotePath, String localPath, {void Function(double)? onProgress}) async {
-    final socket = await SSHSocket.connect(host.hostname, host.port);
-    final client = SSHClient(
-      socket,
-      username: host.username,
-      onPasswordRequest: () => password,
-    );
+  Future<void> downloadFile(Host host, String? password, String remotePath, String localPath, {void Function(double)? onProgress}) async {
+    final client = await _createClient(host, password);
     
     try {
       final sftp = await client.sftp();
@@ -184,5 +223,79 @@ class SSHService {
     } finally {
       client.close();
     }
+  }
+
+  /// 删除文件
+  Future<void> deleteFile(Host host, String? password, String path) async {
+    final client = await _createClient(host, password);
+    try {
+      final sftp = await client.sftp();
+      final realPath = _resolvePath(host, path);
+      await sftp.remove(realPath);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 删除文件夹（递归）
+  Future<void> deleteDirectory(Host host, String? password, String path) async {
+    final client = await _createClient(host, password);
+    try {
+      final sftp = await client.sftp();
+      final realPath = _resolvePath(host, path);
+      // 先删除目录内所有文件和子目录
+      await _deleteDirectoryRecursive(sftp, realPath);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 递归删除目录内容
+  Future<void> _deleteDirectoryRecursive(SftpClient sftp, String path) async {
+    final items = await sftp.listdir(path);
+    for (final item in items) {
+      if (item.filename == '.' || item.filename == '..') continue;
+      final itemPath = '$path/${item.filename}';
+      if (item.attr.isDirectory) {
+        await _deleteDirectoryRecursive(sftp, itemPath);
+      } else {
+        await sftp.remove(itemPath);
+      }
+    }
+    await sftp.rmdir(path);
+  }
+
+  /// 创建文件夹
+  Future<void> createDirectory(Host host, String? password, String path) async {
+    final client = await _createClient(host, password);
+    try {
+      final sftp = await client.sftp();
+      final realPath = _resolvePath(host, path);
+      await sftp.mkdir(realPath);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 重命名/移动文件或文件夹
+  Future<void> rename(Host host, String? password, String oldPath, String newPath) async {
+    final client = await _createClient(host, password);
+    try {
+      final sftp = await client.sftp();
+      final realOldPath = _resolvePath(host, oldPath);
+      final realNewPath = _resolvePath(host, newPath);
+      await sftp.rename(realOldPath, realNewPath);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 解析路径（处理 ~ 符号）
+  String _resolvePath(Host host, String path) {
+    if (path == '~' || path.startsWith('~/')) {
+      final homePath = host.username == 'root' ? '/root' : '/home/${host.username}';
+      return path == '~' ? homePath : path.replaceFirst('~', homePath);
+    }
+    return path;
   }
 }

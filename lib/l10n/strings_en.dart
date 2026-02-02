@@ -106,4 +106,44 @@ class StringsEn {
   static const String cancelTransfer = 'Cancel';
   static const String deleteWithFile = 'Delete';
   static const String resumeTransfer = 'Resume';
+  
+  // Terminal operations
+  static const String copy = 'Copy';
+  static const String paste = 'Paste';
+  static const String selectAll = 'Select All';
+  static const String clearScreen = 'Clear';
+  
+  // SSH authentication
+  static const String authType = 'Authentication';
+  static const String passwordAuth = 'Password';
+  static const String privateKeyAuth = 'Private Key';
+  static const String privateKeyPath = 'Private Key File';
+  static const String selectPrivateKey = 'Select Key';
+  static const String passphrase = 'Passphrase';
+  static const String passphraseHint = 'Leave empty if none';
+  static const String keyFileNotFound = 'Private key file not found';
+  
+  // Groups
+  static const String defaultGroup = 'Default';
+  static const String newGroup = 'New Group';
+  static const String groupName = 'Group Name';
+  static const String editGroup = 'Edit Group';
+  static const String deleteGroup = 'Delete Group';
+  static const String deleteGroupConfirm = 'Hosts in this group will be moved to default group';
+  static const String group = 'Group';
+  static const String noGroup = 'No Group';
+  static const String moveTo = 'Move to';
+  
+  // File operations
+  static const String deleteFile = 'Delete';
+  static const String deleteFileConfirm = 'Are you sure you want to delete this file?';
+  static const String deleteFolderConfirm = 'Are you sure you want to delete this folder and all its contents?';
+  static const String newFolder = 'New Folder';
+  static const String folderName = 'Folder Name';
+  static const String fileDeleted = 'File deleted';
+  static const String folderCreated = 'Folder created';
+  static const String renamed = 'Renamed successfully';
+  static const String deleteFailed = 'Delete failed';
+  static const String operationFailed = 'Operation failed';
+  static const String rename = 'Rename';
 }
