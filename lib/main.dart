@@ -312,10 +312,25 @@ class _HomeScreenState extends State<HomeScreen> {
         _onSessionDisconnected(host.id);
       };
       
-      // 监听输出
-      session.outputSubscription = session.sshService.output.listen((data) {
-        session!.terminal.write(data);
-      });
+      // 设置远程断线回调（服务器主动断开、网络中断等）
+      session.sshService.onDisconnected = () {
+        _onSessionDisconnected(host.id);
+      };
+      
+      // 监听输出（包含错误和完成事件以检测断线）
+      session.outputSubscription = session.sshService.output.listen(
+        (data) {
+          session!.terminal.write(data);
+        },
+        onError: (error) {
+          // 输出流出错，连接可能已断开
+          _onSessionDisconnected(host.id);
+        },
+        onDone: () {
+          // 输出流结束，连接已断开
+          _onSessionDisconnected(host.id);
+        },
+      );
 
       // 监听终端输入
       session.terminal.onOutput = (data) {
@@ -365,8 +380,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 会话断线回调
+  /// 会话断线回调（防止重复调用）
   void _onSessionDisconnected(String hostId) {
+    // 防止重复调用：检查会话是否还存在
+    if (!_sessions.containsKey(hostId)) return;
+    
     setState(() {
       _sessions.remove(hostId);
       if (_activeSessionId == hostId) {

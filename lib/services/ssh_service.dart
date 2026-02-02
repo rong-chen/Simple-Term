@@ -15,10 +15,14 @@ class SSHService {
   /// 空闲超时时间（5分钟）
   static const Duration idleTimeout = Duration(minutes: 5);
   
-  /// 断线回调
+  /// 空闲超时断线回调
   void Function()? onIdleDisconnect;
   
-  bool get isConnected => _client != null;
+  /// 远程断线回调（服务器主动断开、网络中断等）
+  void Function()? onDisconnected;
+  
+  /// 是否已连接（检查客户端存在且未关闭）
+  bool get isConnected => _client != null && !(_client!.isClosed);
 
   /// 重置空闲计时器（每次有用户操作时调用）
   void resetIdleTimer() {
@@ -86,6 +90,15 @@ class SSHService {
     
     // 启动空闲计时器
     resetIdleTimer();
+    
+    // 监听连接关闭事件（服务器断开、网络中断等）
+    _client!.done.then((_) {
+      // 连接已关闭，执行清理和回调
+      _handleDisconnected();
+    }).catchError((error) {
+      // 连接异常关闭
+      _handleDisconnected();
+    });
 
     // 创建交互式 shell，显式设置终端类型为 xterm-256color
     _session = await _client!.shell(
@@ -130,6 +143,20 @@ class SSHService {
     _client?.close();
     _session = null;
     _client = null;
+  }
+  
+  /// 处理远程断线事件
+  void _handleDisconnected() {
+    // 避免重复调用（主动断开时 _client 已为 null）
+    if (_client == null) return;
+    
+    _idleTimer?.cancel();
+    _idleTimer = null;
+    _session = null;
+    _client = null;
+    
+    // 通知上层断线
+    onDisconnected?.call();
   }
 
   /// 创建 SSH 客户端（用于 SFTP 操作）
