@@ -31,7 +31,9 @@ jobs:
         run: flutter pub get
       
       - name: Build macOS Release
-        run: flutter build macos --release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          flutter build macos --release --build-name=$VERSION --build-number=${{ github.run_number }}
       
       - name: Create DMG
         id: create_dmg
@@ -112,7 +114,10 @@ jobs:
         run: flutter pub get
       
       - name: Build Windows Release
-        run: flutter build windows --release
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}".TrimStart('v')
+          flutter build windows --release --build-name=$VERSION --build-number=${{ github.run_number }}
       
       - name: Create ZIP Package
         shell: pwsh
