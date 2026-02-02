@@ -69,20 +69,14 @@ jobs:
         run: |
           DMG_NAME="${{ steps.create_dmg.outputs.dmg_name }}"
           
-          # 将私钥写入临时文件
-          echo "$SPARKLE_PRIVATE_KEY" > /tmp/sparkle_key.pem
-          
-          # 签名 DMG（sign_update 直接输出签名字符串）
-          SIGNATURE=$(/tmp/bin/sign_update -s /tmp/sparkle_key.pem "$DMG_NAME")
+          # 使用 stdin 传递私钥（新版 Sparkle 推荐方式）
+          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | /tmp/bin/sign_update --ed-key-file - -p "$DMG_NAME")
           
           # 获取文件大小
           FILE_SIZE=$(stat -f%z "$DMG_NAME")
           
           echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
           echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
-          
-          # 清理私钥
-          rm -f /tmp/sparkle_key.pem
           
           echo "✅ DMG 签名完成"
           echo "   签名: $SIGNATURE"

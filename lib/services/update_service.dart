@@ -17,10 +17,6 @@ class UpdateService {
     
     try {
       await autoUpdater.setFeedURL(_feedUrl);
-      // 每小时检查一次更新
-      await autoUpdater.setScheduledCheckInterval(3600);
-      // 静默检查更新（不显示 UI，除非有更新）
-      await autoUpdater.checkForUpdates(inBackground: true);
       
       if (kDebugMode) {
         print('[UpdateService] 初始化完成，Feed URL: $_feedUrl');
