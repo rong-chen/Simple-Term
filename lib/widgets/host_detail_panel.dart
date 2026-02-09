@@ -21,7 +21,7 @@ typedef HostDeleteCallback = void Function(Host host);
 /// 主机详情编辑面板
 class HostDetailPanel extends StatefulWidget {
   final Host? host;
-  final HostUpdateCallback onUpdate;Œ
+  final HostUpdateCallback onUpdate;
   final HostDeleteCallback onDelete;
   final InputDecoration Function(String hint) inputDecoration;
 
