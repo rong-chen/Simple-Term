@@ -820,8 +820,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     
     try {
+      // 密钥认证时 password 可以为 null
       final password = await _storageService.getPassword(_selectedHost!.id);
-      if (password == null) {
+      if (password == null && _selectedHost!.authType == AuthType.password) {
         setState(() => _isTransferring = false);
         return;
       }
@@ -875,11 +876,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               decoration: BoxDecoration(
-                color: bgColor.withOpacity(0.95),
+                color: bgColor.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -990,6 +991,7 @@ class _HomeScreenState extends State<HomeScreen> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          obscureText: true,
           decoration: InputDecoration(
             hintText: l10n.sshPassword,
             border: const OutlineInputBorder(),
@@ -1337,8 +1339,9 @@ class _HomeScreenState extends State<HomeScreen> {
       } catch (e) {
         // 显示删除失败提示
         if (mounted) {
+          final l10n = AppLocalizations.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('删除远程文件失败: $e')),
+            SnackBar(content: Text('${l10n.deleteRemoteFileFailed}: $e')),
           );
         }
       }

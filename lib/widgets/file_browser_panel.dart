@@ -87,18 +87,18 @@ class _FileBrowserPanelState extends State<FileBrowserPanel> {
             if (_isDragging && widget.isConnected)
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF007AFF).withOpacity(0.2),
+                  color: const Color(0xFF007AFF).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Center(
+                child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.cloud_upload, color: Color(0xFF007AFF), size: 48),
-                      SizedBox(height: 8),
+                      const Icon(Icons.cloud_upload, color: Color(0xFF007AFF), size: 48),
+                      const SizedBox(height: 8),
                       Text(
-                        '松开上传',
-                        style: TextStyle(color: Color(0xFF007AFF), fontSize: 14, fontWeight: FontWeight.w600),
+                        AppLocalizations.of(context).dropToUpload,
+                        style: const TextStyle(color: Color(0xFF007AFF), fontSize: 14, fontWeight: FontWeight.w600),
                       ),
                     ],
                   ),

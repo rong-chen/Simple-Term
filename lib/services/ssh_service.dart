@@ -119,7 +119,9 @@ class SSHService {
     if (_session == null) {
       return const Stream.empty();
     }
-    return _session!.stdout.map((data) => utf8.decode(data));
+    return _session!.stdout
+        .cast<List<int>>()
+        .transform(const Utf8Decoder(allowMalformed: true));
   }
 
   /// 写入命令

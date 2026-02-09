@@ -182,6 +182,8 @@ class AppLocalizations {
   String get renamed => isZh ? StringsZh.renamed : StringsEn.renamed;
   String get deleteFailed => isZh ? StringsZh.deleteFailed : StringsEn.deleteFailed;
   String get operationFailed => isZh ? StringsZh.operationFailed : StringsEn.operationFailed;
+  String get dropToUpload => isZh ? StringsZh.dropToUpload : StringsEn.dropToUpload;
+  String get deleteRemoteFileFailed => isZh ? StringsZh.deleteRemoteFileFailed : StringsEn.deleteRemoteFileFailed;
   
   // 导入导出
   String get exportData => isZh ? StringsZh.exportData : StringsEn.exportData;

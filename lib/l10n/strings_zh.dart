@@ -146,6 +146,8 @@ class StringsZh {
   static const String deleteFailed = '删除失败';
   static const String operationFailed = '操作失败';
   static const String rename = '重命名';
+  static const String dropToUpload = '松开上传';
+  static const String deleteRemoteFileFailed = '删除远程文件失败';
   
   // 导入导出
   static const String exportData = '导出配置';

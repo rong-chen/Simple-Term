@@ -226,8 +226,8 @@ class TerminalPanel extends StatelessWidget {
           // 终端视图
           Expanded(
             child: Container(
-              margin: const EdgeInsets.only(top: 8, left: 8, right: 8),
-              padding: const EdgeInsets.all(8),
+              margin: const EdgeInsets.only(top: 8, left: 8),
+              padding: const EdgeInsets.only(top: 8, left: 8, bottom: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFF0d0d0d),
                 borderRadius: BorderRadius.circular(8),
@@ -287,48 +287,45 @@ class TerminalPanel extends StatelessWidget {
                             onSecondaryTapDown: (details) {
                               _showContextMenu(context, details.globalPosition);
                             },
-                            child: ScrollConfiguration(
-                              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                              child: activeTerminal != null
-                                  ? TerminalView(
-                                      activeTerminal!,
-                                      controller: terminalController,
-                                      scrollController: terminalScrollController,
-                                      autofocus: true,
-                                      alwaysShowCursor: true,
-                                      hardwareKeyboardOnly: true,
-                                      theme: const TerminalTheme(
-                                        cursor: Color(0xFFFFFFFF),
-                                        selection: Color(0x80FFFFFF),
-                                        foreground: Color(0xFFFFFFFF),
-                                        background: Color(0xFF0d0d0d),
-                                        black: Color(0xFF000000),
-                                        white: Color(0xFFFFFFFF),
-                                        red: Color(0xFFFF5555),
-                                        green: Color(0xFF50FA7B),
-                                        yellow: Color(0xFFF1FA8C),
-                                        blue: Color(0xFF6272A4),
-                                        magenta: Color(0xFFFF79C6),
-                                        cyan: Color(0xFF8BE9FD),
-                                        brightBlack: Color(0xFF6272A4),
-                                        brightWhite: Color(0xFFFFFFFF),
-                                        brightRed: Color(0xFFFF6E6E),
-                                        brightGreen: Color(0xFF69FF94),
-                                        brightYellow: Color(0xFFFFFFA5),
-                                        brightBlue: Color(0xFFD6ACFF),
-                                        brightMagenta: Color(0xFFFF92DF),
-                                        brightCyan: Color(0xFFA4FFFF),
-                                        searchHitBackground: Color(0xFFFFFF00),
-                                        searchHitBackgroundCurrent: Color(0xFFFF6600),
-                                        searchHitForeground: Color(0xFF000000),
-                                      ),
-                                      textStyle: const TerminalStyle(
-                                        fontSize: 14,
-                                        fontFamily: 'Menlo',
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
-                            ),
+                            child: activeTerminal != null
+                                ? TerminalView(
+                                    activeTerminal!,
+                                    controller: terminalController,
+                                    scrollController: terminalScrollController,
+                                    autofocus: true,
+                                    alwaysShowCursor: true,
+                                    hardwareKeyboardOnly: true,
+                                    theme: const TerminalTheme(
+                                      cursor: Color(0xFFFFFFFF),
+                                      selection: Color(0x80FFFFFF),
+                                      foreground: Color(0xFFFFFFFF),
+                                      background: Color(0xFF0d0d0d),
+                                      black: Color(0xFF000000),
+                                      white: Color(0xFFFFFFFF),
+                                      red: Color(0xFFFF5555),
+                                      green: Color(0xFF50FA7B),
+                                      yellow: Color(0xFFF1FA8C),
+                                      blue: Color(0xFF6272A4),
+                                      magenta: Color(0xFFFF79C6),
+                                      cyan: Color(0xFF8BE9FD),
+                                      brightBlack: Color(0xFF6272A4),
+                                      brightWhite: Color(0xFFFFFFFF),
+                                      brightRed: Color(0xFFFF6E6E),
+                                      brightGreen: Color(0xFF69FF94),
+                                      brightYellow: Color(0xFFFFFFA5),
+                                      brightBlue: Color(0xFFD6ACFF),
+                                      brightMagenta: Color(0xFFFF92DF),
+                                      brightCyan: Color(0xFFA4FFFF),
+                                      searchHitBackground: Color(0xFFFFFF00),
+                                      searchHitBackgroundCurrent: Color(0xFFFF6600),
+                                      searchHitForeground: Color(0xFF000000),
+                                    ),
+                                    textStyle: const TerminalStyle(
+                                      fontSize: 14,
+                                      fontFamily: 'Menlo',
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
                           ),
                           // 搜索框
                           if (isSearching)

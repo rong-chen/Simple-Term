@@ -19,9 +19,9 @@ typedef HostUpdateCallback = void Function(
 typedef HostDeleteCallback = void Function(Host host);
 
 /// 主机详情编辑面板
-class HostDetailPanel extends StatelessWidget {
+class HostDetailPanel extends StatefulWidget {
   final Host? host;
-  final HostUpdateCallback onUpdate;
+  final HostUpdateCallback onUpdate;Œ
   final HostDeleteCallback onDelete;
   final InputDecoration Function(String hint) inputDecoration;
 
@@ -34,10 +34,62 @@ class HostDetailPanel extends StatelessWidget {
   });
 
   @override
+  State<HostDetailPanel> createState() => _HostDetailPanelState();
+}
+
+class _HostDetailPanelState extends State<HostDetailPanel> {
+  late TextEditingController _nameController;
+  late TextEditingController _hostnameController;
+  late TextEditingController _portController;
+  late TextEditingController _usernameController;
+  late TextEditingController _passwordController;
+  String? _lastHostId;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _hostnameController = TextEditingController();
+    _portController = TextEditingController();
+    _usernameController = TextEditingController();
+    _passwordController = TextEditingController();
+    _syncControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant HostDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.host?.id != _lastHostId) {
+      _syncControllers();
+    }
+  }
+
+  void _syncControllers() {
+    _lastHostId = widget.host?.id;
+    if (widget.host != null) {
+      _nameController.text = widget.host!.name;
+      _hostnameController.text = widget.host!.hostname;
+      _portController.text = widget.host!.port.toString();
+      _usernameController.text = widget.host!.username;
+      _passwordController.clear();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _hostnameController.dispose();
+    _portController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     
-    if (host == null) {
+    if (widget.host == null) {
       return Center(
         child: Text(
           l10n.selectHostToView,
@@ -46,12 +98,7 @@ class HostDetailPanel extends StatelessWidget {
       );
     }
 
-    final currentHost = host!;
-    final nameController = TextEditingController(text: currentHost.name);
-    final hostnameController = TextEditingController(text: currentHost.hostname);
-    final portController = TextEditingController(text: currentHost.port.toString());
-    final usernameController = TextEditingController(text: currentHost.username);
-    final passwordController = TextEditingController();
+    final currentHost = widget.host!;
 
     return Center(
       child: Container(
@@ -65,9 +112,9 @@ class HostDetailPanel extends StatelessWidget {
               Text(l10n.hostName, style: const TextStyle(color: Colors.white70, fontSize: 13)),
               const SizedBox(height: 8),
               TextField(
-                controller: nameController,
+                controller: _nameController,
                 style: const TextStyle(color: Colors.white),
-                decoration: inputDecoration(l10n.serverName),
+                decoration: widget.inputDecoration(l10n.serverName),
               ),
               const SizedBox(height: 16),
 
@@ -75,9 +122,9 @@ class HostDetailPanel extends StatelessWidget {
               Text(l10n.hostname, style: const TextStyle(color: Colors.white70, fontSize: 13)),
               const SizedBox(height: 8),
               TextField(
-                controller: hostnameController,
+                controller: _hostnameController,
                 style: const TextStyle(color: Colors.white),
-                decoration: inputDecoration(l10n.ipOrDomain),
+                decoration: widget.inputDecoration(l10n.ipOrDomain),
               ),
               const SizedBox(height: 16),
 
@@ -91,10 +138,10 @@ class HostDetailPanel extends StatelessWidget {
                         Text(l10n.port, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         const SizedBox(height: 8),
                         TextField(
-                          controller: portController,
+                          controller: _portController,
                           style: const TextStyle(color: Colors.white),
                           keyboardType: TextInputType.number,
-                          decoration: inputDecoration('22'),
+                          decoration: widget.inputDecoration('22'),
                         ),
                       ],
                     ),
@@ -107,9 +154,9 @@ class HostDetailPanel extends StatelessWidget {
                         Text(l10n.username, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         const SizedBox(height: 8),
                         TextField(
-                          controller: usernameController,
+                          controller: _usernameController,
                           style: const TextStyle(color: Colors.white),
-                          decoration: inputDecoration('root'),
+                          decoration: widget.inputDecoration('root'),
                         ),
                       ],
                     ),
@@ -122,9 +169,10 @@ class HostDetailPanel extends StatelessWidget {
               Text(l10n.passwordKeepEmpty, style: const TextStyle(color: Colors.white70, fontSize: 13)),
               const SizedBox(height: 8),
               TextField(
-                controller: passwordController,
+                controller: _passwordController,
                 style: const TextStyle(color: Colors.white),
-                decoration: inputDecoration(l10n.newPassword),
+                obscureText: true,
+                decoration: widget.inputDecoration(l10n.newPassword),
               ),
               const SizedBox(height: 32),
 
@@ -133,13 +181,13 @@ class HostDetailPanel extends StatelessWidget {
                 children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => onUpdate(
+                      onPressed: () => widget.onUpdate(
                         currentHost,
-                        nameController.text,
-                        hostnameController.text,
-                        int.tryParse(portController.text) ?? 22,
-                        usernameController.text,
-                        passwordController.text.isEmpty ? null : passwordController.text,
+                        _nameController.text,
+                        _hostnameController.text,
+                        int.tryParse(_portController.text) ?? 22,
+                        _usernameController.text,
+                        _passwordController.text.isEmpty ? null : _passwordController.text,
                         currentHost.authType,
                         currentHost.privateKeyContent,
                         currentHost.groupId,
@@ -155,7 +203,7 @@ class HostDetailPanel extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: () => onDelete(currentHost),
+                    onPressed: () => widget.onDelete(currentHost),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,

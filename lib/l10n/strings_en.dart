@@ -146,6 +146,8 @@ class StringsEn {
   static const String deleteFailed = 'Delete failed';
   static const String operationFailed = 'Operation failed';
   static const String rename = 'Rename';
+  static const String dropToUpload = 'Drop to upload';
+  static const String deleteRemoteFileFailed = 'Failed to delete remote file';
   
   // Import/Export
   static const String exportData = 'Export';

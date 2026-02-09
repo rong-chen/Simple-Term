@@ -224,7 +224,7 @@ class _TransferTaskItem extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF007AFF).withOpacity(0.15),
+                    color: const Color(0xFF007AFF).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(l10n.resumeTransfer, style: const TextStyle(color: Color(0xFF007AFF), fontSize: 10)),
@@ -238,7 +238,7 @@ class _TransferTaskItem extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.15),
+                  color: Colors.orange.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(l10n.cancelTransfer, style: const TextStyle(color: Colors.orange, fontSize: 10)),
@@ -251,7 +251,7 @@ class _TransferTaskItem extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFff453a).withOpacity(0.15),
+                  color: const Color(0xFFff453a).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(l10n.deleteWithFile, style: const TextStyle(color: Color(0xFFff453a), fontSize: 10)),
